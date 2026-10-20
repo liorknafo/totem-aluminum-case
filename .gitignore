@@ -1,0 +1,31 @@
+.DS_Store
+__pycache__/
+pylib/
+
+# not used by the build, or too large
+src/pcb_copper.step
+src/board_abs.kicad_pcb
+src/comp/
+src/*.log
+
+# work/: only the pipeline scripts, the viewer template, the site meshes and the input copies
+work/*
+!work/orig/
+!work/meshes.json
+!work/viewer_template.html
+!work/check_all.sh
+!work/build.py
+!work/geo.py
+!work/common.py
+!work/verify.py
+!work/argan_all.py
+!work/thin.py
+!work/heightmaps.py
+!work/render3d.py
+!work/render_v.py
+!work/reset_back.py
+!work/through.py
+!work/under_cmp.py
+!work/write_checks.py
+!work/export_view.py
+!work/pack_png.py

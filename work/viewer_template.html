@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TOTEM aluminum case — 3D view</title>
+<style>
+  html, body { margin: 0; }
+  body { font-family: var(--font-sans, system-ui, sans-serif); color: var(--foreground, #e8e8e8); background: var(--background, #1b1d21); }
+  #wrap { position: relative; width: 100%; height: 580px; border-radius: var(--radius, 8px); overflow: hidden;
+          background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--foreground, #fff) 7%, transparent), transparent 70%); }
+  canvas { display: block; }
+  #ui { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px;
+        background: color-mix(in srgb, var(--card, #26292e) 88%, transparent); border: 1px solid var(--border, #3a3d42);
+        border-radius: var(--radius, 8px); padding: 10px 12px; backdrop-filter: blur(6px); max-width: 215px; }
+  #ui[open] { display: flex; }
+  #ui:not([open]) { display: block; }
+  #ui summary { cursor: pointer; color: var(--muted-foreground, #9aa0a8); font-size: 11.5px; }
+  #ui label { display: flex; align-items: center; gap: 7px; cursor: pointer; white-space: nowrap; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none; }
+  .row { display: flex; gap: 5px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--border, #3a3d42); background: var(--secondary, #30333a); color: var(--secondary-foreground, #eee); }
+  button.on { background: var(--primary, #4a7cff); color: var(--primary-foreground, #fff); border-color: transparent; }
+  .lbl { color: var(--muted-foreground, #9aa0a8); font-size: 11.5px; margin-top: 2px; }
+  input[type=range] { width: 100%; accent-color: var(--primary, #4a7cff); }
+  #hint { position: absolute; right: 12px; bottom: 10px; font-size: 11.5px; color: var(--muted-foreground, #9aa0a8); }
+  #load { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted-foreground, #9aa0a8); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="load">Loading…</div>
+  <details id="ui" open>
+    <summary>Controls</summary>
+    <div class="row" id="sides">
+      <button data-side="both" class="on">Both</button><button data-side="L">Left</button><button data-side="R">Right</button>
+    </div>
+    <div id="layers"></div>
+    <div class="lbl">Explode</div>
+    <input id="explode" type="range" min="0" max="40" value="18">
+    <div class="lbl">Top opacity</div>
+    <input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1">
+    <div class="row">
+      <button data-view="iso">3D</button><button data-view="top">Top</button><button data-view="under">Under</button><button data-view="side">Side</button>
+    </div>
+  </details>
+  <div id="hint">drag: rotate · right-drag: pan · scroll: zoom</div>
+</div>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+  // the module below never runs if the 3D library (unpkg.com) can't be reached
+  setTimeout(() => { const l = document.getElementById('load'); if (l && l.textContent === 'Loading…') l.textContent = 'Still loading after 20 s: the 3D library comes from unpkg.com, check the internet connection.'; }, 20000);
+</script>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const D = JSON.parse(document.getElementById('data').textContent);
+const PNG_URL = '__PNG__';
+if (!PNG_URL.startsWith('__')) D.png = PNG_URL;
+const wrap = document.getElementById('wrap');
+const fail = e => { const l = document.getElementById('load'); if (l) l.textContent = 'Could not load the 3D view: ' + (e?.message || e); };
+addEventListener('error', e => fail(e.error || e.message));
+addEventListener('unhandledrejection', e => fail(e.reason));
+
+let PNG = null;
+async function pngBytes() {
+  const img = new Image();
+  img.src = D.png;
+  await img.decode();
+  const bmp = await createImageBitmap(img, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  const c = new OffscreenCanvas(bmp.width, bmp.height), ctx = c.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  const rgba = ctx.getImageData(0, 0, bmp.width, bmp.height).data, out = new Uint8Array(rgba.length / 4 * 3);
+  for (let i = 0, j = 0; i < rgba.length; i += 4) { out[j++] = rgba[i]; out[j++] = rgba[i + 1]; out[j++] = rgba[i + 2]; }
+  return out;
+}
+async function inflate(m) {
+  let bin;
+  if (m.b64) bin = Uint8Array.from(atob(m.b64), c => c.charCodeAt(0));
+  else bin = PNG.subarray(m.off, m.off + m.len);
+  const s = new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
+async function geometry(m) {
+  const b = await inflate(m), nv = m.nv, ni = m.nf * 3;
+  const pos = new Float32Array(nv * 3);
+  for (let a = 0; a < 3; a++) {
+    const o = a * nv * 2;
+    for (let i = 0; i < nv; i++) pos[i * 3 + a] = D.lo[a] + (b[o + i] | (b[o + nv + i] << 8)) * D.scale[a];
+  }
+  const o = nv * 6, idx = new Uint32Array(ni);
+  let acc = 0;
+  for (let i = 0; i < ni; i++) {
+    const z = (b[o + i] | (b[o + ni + i] << 8) | (b[o + 2 * ni + i] << 16) | (b[o + 3 * ni + i] << 24)) >>> 0;
+    acc += (z >>> 1) ^ -(z & 1);
+    idx[i] = acc;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeVertexNormals();
+  return g;
+}
+
+const mat = (color, metal, rough, extra = {}) => new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough, envMapIntensity: 0.3, side: THREE.DoubleSide, ...extra });
+const LAYERS = [
+  { key: 'top', name: 'Aluminum top', color: '#a3a8b0', m: () => mat('#a3a8b0', 0.6, 0.5, { transparent: true }) },
+  { key: 'insert', name: 'Wood window', color: '#b5793f', m: () => mat('#b5793f', 0.0, 0.75) },
+  { key: 'bottom', name: 'Aluminum bottom', color: '#8c929b', m: () => mat('#8c929b', 0.6, 0.5) },
+  { key: 'pcb', name: 'PCB', color: '#1d6e45', m: () => mat('#1d6e45', 0.1, 0.6) },
+  { key: 'switches', name: 'Switches + sockets', color: '#5b6068', m: () => mat('#5b6068', 0.2, 0.55) },
+  { key: 'parts', name: 'Diodes, power, reset', color: '#25272b', m: () => mat('#2a2c30', 0.3, 0.5) },
+  { key: 'xiao', name: 'XIAO BLE', color: '#3466b0', m: () => mat('#3466b0', 0.3, 0.5) },
+  { key: 'battery', name: 'LiPo battery', color: '#cdb87a', m: () => mat('#cdb87a', 0.3, 0.55) },
+  { key: 'screws', name: 'Screws', color: '#585d64', m: () => mat('#585d64', 0.8, 0.35) },
+  { key: 'caps', name: 'Keycaps', color: '#e6e2d8', off: true, m: () => mat('#e6e2d8', 0.0, 0.7) },
+];
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+wrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(-80, -120, 260); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.6));
+
+const camera = new THREE.PerspectiveCamera(30, 1, 1, 5000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const groups = { L: {}, R: {} }, sideRoot = { L: new THREE.Group(), R: new THREE.Group() };
+for (const s of 'LR') { scene.add(sideRoot[s]); for (const l of LAYERS) { groups[s][l.key] = new THREE.Group(); sideRoot[s].add(groups[s][l.key]); } }
+const mats = Object.fromEntries(LAYERS.map(l => [l.key, l.m()]));
+const edgeMats = Object.fromEntries(['top', 'bottom', 'insert'].map(k => [k, new THREE.LineBasicMaterial({ color: 0x1a1c20, transparent: true, opacity: 0.45 })]));
+
+function pcbMesh(p) {
+  const pts = a => { const v = []; for (let i = 0; i < a.length; i += 2) v.push(new THREE.Vector2(a[i], a[i + 1])); return v; };
+  const shape = new THREE.Shape(pts(p.outline));
+  for (const [x, y, r] of p.circles) { const h = new THREE.Path(); h.absarc(x, y, r, 0, Math.PI * 2, true); shape.holes.push(h); }
+  for (const r of p.rings) shape.holes.push(new THREE.Path(pts(r)));
+  const g = new THREE.ExtrudeGeometry(shape, { depth: D.pcb_top, bevelEnabled: false, curveSegments: 20 });
+  return new THREE.Mesh(g, mats.pcb);
+}
+
+function instanced(geom, material, list) {
+  const im = new THREE.InstancedMesh(geom, material, list.length), m = new THREE.Matrix4();
+  list.forEach(([x, y, a], i) => { m.makeRotationZ(a * Math.PI / 180); m.setPosition(x, y, 0); im.setMatrixAt(i, m); });
+  return im;
+}
+
+const G = {};
+if (D.png) {
+  const all = await pngBytes(), n = all[0] | (all[1] << 8) | (all[2] << 16) | (all[3] << 24);
+  Object.assign(D, JSON.parse(new TextDecoder().decode(all.subarray(4, 4 + n))));
+  PNG = all.subarray(4 + n);
+}
+await Promise.all(Object.entries(D.meshes).map(async ([k, m]) => { G[k] = await geometry(m); }));
+for (const s of 'LR') {
+  for (const k of ['top', 'bottom', 'insert', 'parts', 'xiao', 'battery', 'screws', 'caps']) groups[s][k].add(new THREE.Mesh(G[`${k}_${s}`], mats[k]));
+  for (const k of ['top', 'bottom', 'insert']) groups[s][k].add(new THREE.LineSegments(new THREE.EdgesGeometry(G[`${k}_${s}`], 28), edgeMats[k]));
+  groups[s].pcb.add(pcbMesh(D.pcb[s]));
+  groups[s].switches.add(instanced(G.switch, mats.switches, D.switches[s]));
+  groups[s].parts.add(instanced(G.diode, mats.parts, D.diodes[s]));
+}
+document.getElementById('load').remove();
+
+// UI
+const vis = Object.fromEntries(LAYERS.map(l => [l.key, !l.off]));
+const layersDiv = document.getElementById('layers');
+for (const l of LAYERS) {
+  const lab = document.createElement('label');
+  lab.innerHTML = `<input type="checkbox" ${vis[l.key] ? 'checked' : ''}><span class="sw" style="background:${l.color}"></span>${l.name}`;
+  lab.querySelector('input').onchange = e => { vis[l.key] = e.target.checked; for (const s of 'LR') groups[s][l.key].visible = vis[l.key]; };
+  layersDiv.appendChild(lab);
+  for (const s of 'LR') groups[s][l.key].visible = vis[l.key];
+}
+let shown = 'both', panel = 0;
+const box = new THREE.Box3();
+function frame(view = 'iso') {
+  box.makeEmpty();
+  for (const s of 'LR') if (sideRoot[s].visible) for (const k of ['top', 'bottom']) box.expandByObject(groups[s][k]);  // the case bounds the rest
+  const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2;
+  const vfov = camera.fov * Math.PI / 180, hfov = 2 * Math.atan(Math.tan(vfov / 2) * (camera.aspect - panel / wrap.clientHeight));
+  const dirs = { iso: [0.3, -0.85, 1.05], top: [0, -0.01, 1], under: [0, -0.01, -1], side: [0, -1, 0.08] };
+  const d = new THREE.Vector3(...dirs[view]).normalize();
+  camera.position.copy(c).addScaledVector(d, r / Math.sin(Math.min(vfov, hfov) / 2) * 0.95);
+  controls.target.copy(c); camera.lookAt(c); controls.update();
+}
+document.querySelectorAll('#sides button').forEach(b => b.onclick = () => {
+  shown = b.dataset.side;
+  document.querySelectorAll('#sides button').forEach(x => x.classList.toggle('on', x === b));
+  sideRoot.L.visible = shown !== 'R'; sideRoot.R.visible = shown !== 'L'; frame();
+});
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => frame(b.dataset.view));
+const ex = document.getElementById('explode'), op = document.getElementById('opacity');
+function explode() {
+  const e = +ex.value;
+  for (const s of 'LR') {
+    groups[s].top.position.z = groups[s].screws.position.z = e;
+    groups[s].insert.position.z = e * 0.55;  // fits from inside, under the roof
+    groups[s].caps.position.z = e * 2;
+    groups[s].bottom.position.z = groups[s].battery.position.z = -e * 0.6;
+  }
+}
+ex.oninput = explode;
+op.oninput = () => { mats.top.opacity = +op.value; mats.top.depthWrite = +op.value > 0.97; edgeMats.top.opacity = 0.45 * +op.value; };
+explode();
+
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  panel = w > 560 ? document.getElementById('ui').offsetWidth + 12 : 0;
+  renderer.setSize(w, h); camera.aspect = w / h;
+  camera.setViewOffset(w, h, -panel / 2, 0, w, h);  // keep the model clear of the control panel
+  camera.updateProjectionMatrix();
+}
+if (wrap.clientWidth <= 560) document.getElementById('ui').open = false;
+new ResizeObserver(resize).observe(wrap); resize(); frame();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+window.__v = { groups, mats, camera, controls, frame, sideRoot, renderer, scene };
+console.log('ready', Object.keys(G).length, 'meshes');
+</script>
+</body>
+</html>

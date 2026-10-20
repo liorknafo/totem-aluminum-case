@@ -1,0 +1,167 @@
+{
+  "source_site": "https://totem-assembled.liorknafo.chatgpt.site/",
+  "source_site_version": 3,
+  "source_site_commit": "8647a0adef919b804c4eb7499c17dd67c0e5abae",
+  "units": "mm",
+  "parts": {
+    "bottomL": {
+      "file": "TOTEM_tenting_live_bottom_L.step",
+      "valid": true,
+      "solid_count": 1,
+      "closed_shells": true,
+      "face_count": 3453,
+      "volume_mm3": 73470.33513082247,
+      "bbox_mm": [
+        [
+          18.289999999995743,
+          -142.52000000000012,
+          -11.400000000008971
+        ],
+        [
+          151.42000000000002,
+          -43.5,
+          4.200000000000008
+        ]
+      ],
+      "bytes": 9705351,
+      "sha256": "d538e2b0b4d08a83026cd4e8ca9a476d33ea2330039ec75cb1474f1d82d36a96",
+      "representation": "faceted B-rep from live mesh",
+      "visualization_surface_comparison": {
+        "viewer_vertices_to_CAD": {
+          "max_mm": 0.0013468017214213986,
+          "p99_mm": 0.0007848147777642371,
+          "mean_mm": 2.031438257747369e-05,
+          "sample_count": 3468
+        },
+        "CAD_vertices_to_viewer": {
+          "max_mm": 0.0,
+          "p99_mm": 0.0,
+          "mean_mm": 0.0,
+          "sample_count": 3095
+        }
+      }
+    },
+    "bottomR": {
+      "file": "TOTEM_tenting_live_bottom_R.step",
+      "valid": true,
+      "solid_count": 1,
+      "closed_shells": true,
+      "face_count": 3745,
+      "volume_mm3": 73531.03384800807,
+      "bbox_mm": [
+        [
+          156.44999999999993,
+          -142.52,
+          -11.400000000001103
+        ],
+        [
+          289.57,
+          -43.49999999999991,
+          4.20000000000001
+        ]
+      ],
+      "bytes": 10652962,
+      "sha256": "66c8dc508c5d0d8f79e3f792daec1eb982f2ea7069275652eae827ae8890a611",
+      "representation": "faceted B-rep from live mesh",
+      "visualization_surface_comparison": {
+        "viewer_vertices_to_CAD": {
+          "max_mm": 0.007071067811869092,
+          "p99_mm": 0.0,
+          "mean_mm": 9.315176004931591e-06,
+          "sample_count": 3462
+        },
+        "CAD_vertices_to_viewer": {
+          "max_mm": 0.00677972647283063,
+          "p99_mm": 0.0,
+          "mean_mm": 1.9806387592260094e-06,
+          "sample_count": 3423
+        }
+      }
+    },
+    "topL": {
+      "file": "TOTEM_case_ble_top_L_V.08.step",
+      "valid": true,
+      "solid_count": 1,
+      "closed_shells": true,
+      "face_count": 503,
+      "volume_mm3": 18983.68705897909,
+      "bbox_mm": [
+        [
+          18.3110067216389,
+          -142.511933792771,
+          -2.0000001
+        ],
+        [
+          151.417365484948,
+          -43.4992729,
+          10.5000001
+        ]
+      ],
+      "bytes": 833592,
+      "sha256": "b4a50b61280e2a1d526d986db20ce3b7f2a3099a59bec83a0c63ecdbd04044be",
+      "representation": "original smooth CAD B-rep",
+      "visualization_surface_comparison": {
+        "viewer_vertices_to_CAD": {
+          "max_mm": 0.02713083209458279,
+          "p99_mm": 0.013606475091983835,
+          "mean_mm": 0.001949481523660747,
+          "sample_count": 2206
+        },
+        "CAD_vertices_to_viewer": {
+          "max_mm": 0.09052410363387976,
+          "p99_mm": 0.021898062727191612,
+          "mean_mm": 0.0041266652486890145,
+          "sample_count": 16869
+        }
+      }
+    },
+    "topR": {
+      "file": "TOTEM_case_ble_top_R_V.08.step",
+      "valid": true,
+      "solid_count": 1,
+      "closed_shells": true,
+      "face_count": 450,
+      "volume_mm3": 18998.44402313901,
+      "bbox_mm": [
+        [
+          156.447205298535,
+          -142.511894925723,
+          -2.0000001
+        ],
+        [
+          289.550889278361,
+          -43.4992729,
+          10.5000001
+        ]
+      ],
+      "bytes": 705838,
+      "sha256": "ae8a760a35e930c924344f8ab1207a8473bd7d7c8c8efca53a73b9fb5221d5e6",
+      "representation": "original smooth CAD B-rep",
+      "visualization_surface_comparison": {
+        "viewer_vertices_to_CAD": {
+          "max_mm": 0.0236608445070246,
+          "p99_mm": 0.011471944179871671,
+          "mean_mm": 0.0017088185360904801,
+          "sample_count": 2206
+        },
+        "CAD_vertices_to_viewer": {
+          "max_mm": 0.09018340293584905,
+          "p99_mm": 0.017961685901079147,
+          "mean_mm": 0.0032929060255482783,
+          "sample_count": 12739
+        }
+      }
+    }
+  },
+  "notes": [
+    "Bottoms extracted from the current live site mesh; faceted B-rep solids, not the older shared-chat CAD.",
+    "Viewer vertex coordinates are quantized to 0.01 mm and were tessellated/decimated before publication.",
+    "Degenerate and duplicate triangles and detached negligible-volume seam artifacts removed.",
+    "Left bottom stitched at 0.00001 mm; right bottom stitched at 0.015 mm.",
+    "Right bottom: one planar triangular mesh gap of 0.0326 square millimetres closed at z=-2.2 mm.",
+    "Top files are byte-identical original smooth TOTEM BLE STEP sources; checked against site geometry.",
+    "Native part coordinates are retained. Visualization-only separation offsets are omitted.",
+    "No physical fit or print test performed.",
+    "Coplanar triangles merged while preserving the faceted surface geometry."
+  ]
+}
