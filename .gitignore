@@ -29,3 +29,4 @@ work/*
 !work/write_checks.py
 !work/export_view.py
 !work/pack_png.py
+!work/stills_template.html
