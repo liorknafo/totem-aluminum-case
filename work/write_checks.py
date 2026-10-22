@@ -70,6 +70,27 @@ for side in 'LR':
         r = thinner(side, part, orig)
         lines.append(f'- {side} {part}: ' + ('no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)' if not r else
                      '; '.join(f'({x:.1f},{y:.1f}) {t:.2f} mm' + (f' (was {o:.2f})' if o else ' (new)') for x, y, t, o in r)))
+fit = json.load(open(W / 'fit_check.json'))
+mach = open(W / 'machinable.txt').read().strip().splitlines()
+lines += ['', '## 3-axis machining with a Ø2 mm flat end mill', '',
+          'Every part was projected on a 0.05 mm grid from above and from below (two setups), using exact',
+          'triangles for planar faces and closed tessellation for curved faces, with balanced crossings.',
+          'On each side the',
+          'surface a Ø2 mm flat end mill leaves is the grey-level closing of the part\'s height map by a 1 mm',
+          'disc; any spot where the part lies deeper than that (material the mill can\'t remove: a slot',
+          'narrower than 2 mm, an inside corner sharper than R1, a pocket hidden under an overhang) is',
+          'counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.0 neck in the top, Ø2.16 in',
+          'the bottom) and not counted. Tilted faces outside the countersinks are reported separately;',
+          'they must be horizontal or vertical for a strict 2.5D result. On the tops they are hairline curved',
+          'transitions (≈0.9 mm²); on the bottoms they are facets tilted by less than 0.01° (rounding in the mesh',
+          'booleans, under 0.002 mm across a wall) apart from 0.02 mm² of microscopic facets. Pictures: `work/mach_*.png`.', '', '```'] + mach + ['```', '',
+          'Measured fit after machining (smallest vertical gap between the top\'s underside',
+          'and the bottom\'s top face, each as the Ø2 mm end mill leaves it):', '', '```'] + \
+         open(W / 'seam_machined.txt').read().strip().splitlines() + ['```', '',
+          'Parts that must still fit where no keep-out applies (overlap volume, new / original):', '']
+for side in 'LR':
+    for k, val in fit[side].items():
+        lines.append(f'- {side} {k}: {val}')
 lines += ['', '## Pictures', '', '- `heightmap_L.png`, `heightmap_R.png`: gap from the PCB faces, before and after',
           '- `render3d_L.png`, `render3d_R.png`: the new parts', '- `sections_L.png`: cross-sections through the assembly',
           '- `reset_back.png`: back face around the reset button, original vs new (unchanged)',

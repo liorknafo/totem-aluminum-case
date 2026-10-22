@@ -4,6 +4,7 @@ Inputs are copies (work/orig, src/); originals in ~/Downloads are never touched.
 Units mm. Case coordinates = the original STEP coordinates (KiCad x, -y for the left half).
 """
 import sys, json, time
+from pathlib import Path
 sys.path.insert(0, '.')
 from geo import *
 from OCP.STEPCAFControl import STEPCAFControl_Reader
@@ -15,6 +16,7 @@ from OCP.TDataStd import TDataStd_Name
 from OCP.Bnd import Bnd_OBB
 from OCP.BRepBndLib import BRepBndLib
 from OCP.gp import gp_Pnt
+import mill
 
 C = 0.5            # clearance from aluminum to PCB, parts, pads and solder (mm)
 SOLDER = 1.0       # allowance for solder fillets above a pad (mm)
@@ -29,8 +31,11 @@ SKIN = 0.6         # thinnest floor left under a bottom pocket; thinner floors a
 SEAM_Z0 = -2.0     # original lowest point of the top
 SEAM_RAISE = 0.5   # top/bottom seam moved up: top 12.5 -> 12.0 mm so 1/2" plate can be faced both sides
 SEAM_GAP = 0.2     # the original leaves 0.2 between top skirt (-2.0) and bottom rim (-2.2); kept
-DOGBONE_R = 0.52   # corner reliefs in the 13.8 mm switch cut-outs, for a 1 mm end mill (2 mm ones meet across the 3.2 mm webs)
-LEDGE = (2.4, 3.7) # z span of the 1.2 mm switch clip ledge (2.45..3.65); the relief stays over the 16 mm recess below
+NEST_GAP = 0.4     # bottom to top where they nest above the board (tongues, arches), before machining
+LEDGE = (2.4, 3.7) # z span of the 1.2 mm switch clip ledge (2.45..3.65); the cut-out's dogbones stay over the 16 mm recess below
+BOOL_TIMEOUT = 150  # s per boolean attempt; a slower one is retried in halves
+CSINK_R = 2.3      # countersinks (Ø3.5 top, Ø4.25 bottom) are kept as cones: cut with a countersink bit
+DRILL_R = 1.15     # screw holes (Ø2.0 neck in the top, Ø2.16 in the bottom) are drilled: never filled within this radius
 R_SHIFT = 7.96     # KiCad right half -> right case (matches the right top's screw bores)
 SCREWS = {'L': [(57, -52.7), (34.3, -121.014348), (139.5, -112), (131.2, -52.7)]}
 SCREWS['R'] = [(168.46, -112.0), (176.76, -52.7), (250.96, -52.7), (273.66, -121.0)]
@@ -44,6 +49,23 @@ def log(*a):
     print(f'[{time.monotonic() - T0:6.1f}s]', *a, flush=True)
 
 
+def fast_fuse(shape, tools):
+    """One multi-tool boolean fuse, run in parallel by the kernel."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+    from OCP.TopTools import TopTools_ListOfShape
+    args, tl = TopTools_ListOfShape(), TopTools_ListOfShape()
+    args.Append(shape.wrapped)
+    for t in tools:
+        tl.Append(t.wrapped)
+    op = BRepAlgoAPI_Fuse()
+    op.SetArguments(args); op.SetTools(tl)
+    op.SetRunParallel(True); op.SetUseOBB(True)
+    op.SetFuzzyValue(1e-5)  # thin fill slices next to the old faces otherwise make the kernel drop the part
+    op.Build()
+    assert op.IsDone(), 'fuse failed'
+    return cq.Shape.cast(op.Shape())
+
+
 def fast_cut(shape, tools):
     """One multi-tool boolean cut, run in parallel by the kernel."""
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
@@ -55,6 +77,7 @@ def fast_cut(shape, tools):
     op = BRepAlgoAPI_Cut()
     op.SetArguments(args); op.SetTools(tl)
     op.SetRunParallel(True); op.SetUseOBB(True)
+    op.SetFuzzyValue(1e-5)  # thin fill slices next to the old faces otherwise make the kernel drop the part
     op.Build()
     assert op.IsDone(), 'cut failed'
     return cq.Shape.cast(op.Shape())
@@ -418,35 +441,41 @@ def close_recess_openings(bot, side, top):
     return out, len(fill), round(fill_area.area, 1)
 
 
-def thicken_thin_floors(tools, bot, skin):
-    """A pocket floor must be at least `skin` thick. Where the underside below a pocket comes
+def thicken_thin_floors(layers, bot, skin):
+    """A pocket floor must be at least `skin` thick. `layers`: the opened pockets cut from above,
+    as (z, region reached at z) from the deepest up. Where the underside below a pocket comes
     within `skin` of its floor (leftover bits of the old leg-recess roof, sloped edges), add a pad
     underneath so the floor stays `skin` thick. Through-openings (no material at all) stay open."""
     import trimesh, shapely.geometry as sg
     from shapely.ops import unary_union
+    from shapely import contains_xy
     v, f = bot.tessellate(0.005, 0.05)
     m = trimesh.Trimesh(np.array([p.toTuple() for p in v]), np.array(f))
-    pads, where = [], []
-    for t in tools:
-        b = t.BoundingBox()
-        if b.zmin > -C - 0.05:
+    pads, where, prev = [], [], sg.Polygon()
+    for z, region in layers:
+        floor = region.difference(prev)
+        prev = region
+        if z > -C - 0.05 or floor.is_empty:
             continue
-        foot = sg.MultiPoint([v.toTuple()[:2] for v in t.Vertices()]).convex_hull
-        xs = np.arange(b.xmin, b.xmax, 0.1); ys = np.arange(b.ymin, b.ymax, 0.1)
-        P = np.array([(x, y) for x in xs for y in ys if foot.contains(sg.Point(x, y))])
-        if len(P) == 0:
-            continue
-        loc, idx, _ = m.ray.intersects_location(np.c_[P, np.full(len(P), -20.0)], np.tile([0, 0, 1.0], (len(P), 1)),
-                                                multiple_hits=False)
-        U = np.full(len(P), -99.0); U[idx] = np.asarray(loc).reshape(-1, 3)[:, 2]
-        thin = P[(U < b.zmin) & (U > b.zmin - skin)]
-        if len(thin) == 0:
-            continue
-        region = unary_union([sg.Point(x, y).buffer(0.12, quad_segs=4) for x, y in thin]).buffer(0.05).simplify(0.02)
-        for g in (region.geoms if region.geom_type == 'MultiPolygon' else [region]):
-            if g.area > 0.01:
-                pads.append(cq.Solid.extrudeLinear(poly_face(g, b.zmin - skin - 0.05), cq.Vector(0, 0, skin + 0.05)))
-        where.append((round((b.xmin + b.xmax) / 2, 1), round((b.ymin + b.ymax) / 2, 1), len(thin)))
+        for part in mill.pieces(floor):
+            x0, y0, x1, y1 = part.bounds
+            X, Y = np.meshgrid(np.arange(x0, x1, 0.1), np.arange(y0, y1, 0.1))
+            inside = contains_xy(part, X.ravel(), Y.ravel())
+            P = np.c_[X.ravel(), Y.ravel()][inside]
+            if len(P) == 0:
+                continue
+            loc, idx, _ = m.ray.intersects_location(np.c_[P, np.full(len(P), -20.0)], np.tile([0, 0, 1.0], (len(P), 1)),
+                                                    multiple_hits=False)
+            U = np.full(len(P), -99.0); U[idx] = np.asarray(loc).reshape(-1, 3)[:, 2]
+            thin = P[(U < z) & (U > z - skin)]
+            if len(thin) == 0:
+                continue
+            reg = unary_union([sg.Point(x, y).buffer(0.12, quad_segs=4) for x, y in thin]).buffer(0.05).simplify(0.02)
+            for g in mill.pieces(reg):
+                if g.area > 0.01:
+                    pads.append(cq.Solid.extrudeLinear(poly_face(g, z - skin - 0.05), cq.Vector(0, 0, skin + 0.05)))
+            c = part.centroid
+            where.append((round(c.x, 1), round(c.y, 1), len(thin)))
     return pads, where
 
 
@@ -460,7 +489,7 @@ def xiao_keepout(side):
 
 # ------------------------------------------------------------ wood window
 def window_parts(side, top):
-    """Opening in the roof above the XIAO plus a matching wood insert (plug + flange under the roof)."""
+    """Opening in the roof above the XIAO, and the wood insert's plug and flange outline."""
     (x, y), a = XIAO[side]
     def local(x0, x1, y0, y1, z0, z1, r):
         b = cq.Workplane().box(x1 - x0, y1 - y0, z1 - z0).edges('|Z').fillet(r) \
@@ -473,18 +502,28 @@ def window_parts(side, top):
     W_X, W_Y = (-7.0, 7.0), (-10.3, 8.2)       # window in XIAO frame: to the far end; USB-C end (+y) closed
     hole = local(*W_X, *W_Y, roof_z0 - 1, top_z + 1, 1.5)
     plug = local(W_X[0] + 0.1, W_X[1] - 0.1, W_Y[0] + 0.1, W_Y[1] - 0.1, roof_z0, top_z, 1.4)
+    flange_box = local(W_X[0] - 1.5, W_X[1] + 1.5, W_Y[0] - 1.5, W_Y[1] + 1.5, roof_z0 - 1.5, roof_z0, 1.0)
+    return hole, plug, flange_box, roof_z0, top_z
+
+
+def window_insert(side, top, plug, flange_box, roof_z0, top_z):
+    """Wood insert for the final top: plug in the window plus a 1.5 mm flange under the roof that
+    clears the cavity walls by 0.2. The flange outline is made cuttable with the Ø2 end mill
+    (its inside corners next to the walls get dogbones, cut into the flange, never into the wall)."""
     flange_t = 1.5
-    flange_box = local(W_X[0] - 1.5, W_X[1] + 1.5, W_Y[0] - 1.5, W_Y[1] + 1.5, roof_z0 - flange_t, roof_z0, 1.0)
-    # flange must clear the cavity walls by 0.2: subtract the top grown sideways
-    walls = top.intersect(box(x - 20, x + 20, y - 20, y + 20, roof_z0 - flange_t - 0.01, roof_z0 + 0.01))
-    flange = flange_box
-    for dx, dy in [(0.2, 0), (-0.2, 0), (0, 0.2), (0, -0.2), (0.14, 0.14), (-0.14, 0.14), (0.14, -0.14), (-0.14, -0.14), (0, 0)]:
-        flange = flange.cut(walls.translate(cq.Vector(dx, dy, 0)))
-    sols = sorted(flange.Solids(), key=lambda s: -s.Volume())
-    insert = plug.fuse(sols[0]).clean()
-    insert = sorted(insert.cut(top.cut(hole)).Solids(), key=lambda s: -s.Volume())[0]  # never overlap the aluminum
+    fb = flange_box.BoundingBox()
+    m = mill.mesh_of(top.intersect(box(fb.xmin - 3, fb.xmax + 3, fb.ymin - 3, fb.ymax + 3, roof_z0 - flange_t - 0.5, roof_z0 + 0.5)))
+    walls = mill.unary_union([mill.section(m, z) for z in np.linspace(roof_z0 - flange_t + 0.002, roof_z0 - 0.002, 7)])
+    fl = mill.section(mill.mesh_of(flange_box, 0.002), roof_z0 - flange_t / 2)
+    frame = mill.sg.box(fb.xmin - 3, fb.ymin - 3, fb.xmax + 3, fb.ymax + 3)
+    void = frame.difference(fl).union(walls.buffer(0.2, quad_segs=mill.QS))
+    flange2d = frame.difference(mill.open_superset(void))
+    pc = plug.Center()
+    flange2d = max(mill.pieces(flange2d), key=lambda g: (g.contains(mill.sg.Point(pc.x, pc.y)), g.area))
+    insert = plug.fuse(mill.prism(flange2d, roof_z0 - flange_t, roof_z0)).clean()
+    insert = sorted(insert.cut(top).Solids(), key=lambda s: -s.Volume())[0]  # never overlap the aluminum
     assert insert.BoundingBox().zmax > top_z - 1e-3, 'insert lost its plug'
-    return hole, insert, roof_z0, top_z
+    return insert
 
 
 def repair(shape):
@@ -507,26 +546,156 @@ def repair(shape):
     return fixed
 
 
-def dogbones(top):
-    """Corner reliefs for every ~13.8 mm square switch cut-out in the clip ledge, so a round
-    end mill leaves room for the switch's square corners."""
+def switch_cutouts(top):
+    """The ~13.8 mm square switch cut-outs through the clip ledge, as keep-out prisms (the mill
+    stage gives them dogbones so the switches' square corners fit)."""
     sec = top.intersect(box(-50, 450, -300, 50, 2.99, 3.01))
     face = [f for f in sec.Faces() if f.normalAt().z > 0.99 and f.Center().z > 3.005]
-    cyl = []
+    out = []
     for f in face:
         for w in f.innerWires():
             vs = [v.toTuple()[:2] for v in w.Vertices()]
             if len(vs) != 4:
                 continue
-            c = np.mean(vs, axis=0)
             sides = [np.hypot(*(np.subtract(vs[i], vs[(i + 1) % 4]))) for i in range(4)]
             if not all(13.6 < L < 14.1 for L in sides):
                 continue
-            for v in vs:
-                d = np.subtract(v, c); d /= np.linalg.norm(d)
-                o = np.add(v, d * (DOGBONE_R - 0.05))  # circle on the diagonal, covering the corner
-                cyl.append(cq.Solid.makeCylinder(DOGBONE_R, LEDGE[1] - LEDGE[0], cq.Vector(o[0], o[1], LEDGE[0])))
-    return cyl
+            out.append(mill.prism(mill.sg.Polygon(vs), LEDGE[0], LEDGE[1]))
+    return out
+
+
+def countersinks(side):
+    return mill.unary_union([mill.sg.Point(x, y).buffer(CSINK_R, quad_segs=mill.QS) for x, y in SCREWS[side]])
+
+
+def drill_holes(side):
+    """Screw holes: drilled, so the fill leaves them alone."""
+    return mill.unary_union([mill.sg.Point(x, y).buffer(DRILL_R, quad_segs=mill.QS) for x, y in SCREWS[side]])
+
+
+def safe_bool(kind, part, tools, name, fuzzy=1e-5):
+    """fast_fuse / fast_cut whose result is checked: one solid that still holds the part (fuse:
+    nothing lost; cut: nothing added). On a bad result the tools are split in halves and applied in
+    turn; a single tool the kernel still mishandles is retried with a larger fuzzy value, and
+    after that a fill prism is skipped (the machinability check would show the spot) while a
+    keep-out never is."""
+    import subprocess, tempfile
+    def run(ts, fz):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            part.exportBrep(str(d / 'p.brep')); cq.Compound.makeCompound(ts).exportBrep(str(d / 't.brep'))
+            try:
+                subprocess.run([sys.executable, '-E', '-s', str(W / 'bool_worker.py'), kind, str(fz),
+                                str(d / 'p.brep'), str(d / 't.brep'), str(d / 'r.brep')],
+                               timeout=BOOL_TIMEOUT, check=False, capture_output=True)
+            except subprocess.TimeoutExpired:
+                log(name, kind, 'of', len(ts), 'tools timed out')
+                return None
+            if not (d / 'r.brep').exists():
+                return None
+            result = cq.Shape.importBrep(str(d / 'r.brep'))
+        # the kernel sometimes adds an inside-out copy of the tools (negative volume): not material
+        sols = sorted([s for s in result.Solids() if s.Volume() > 0], key=lambda s: -s.Volume())
+        if not sols or sum(s.Volume() for s in sols[1:]) > 0.5:
+            return None
+        v0, v = part.Volume(), sols[0].Volume()
+        if (kind == 'fuse' and v < v0 - 0.01) or (kind == 'cut' and (v > v0 + 0.01 or v < 0.5 * v0)):
+            return None
+        return sols[0]
+    # a cut is fast and usually fine without fuzzy; the thin fill slices need it for the fuse
+    for fz in ((0.0, fuzzy) if kind == 'cut' else (fuzzy,)):
+        r = run(tools, fz)
+        if r is not None:
+            return r
+    if len(tools) == 1:
+        for fz in (1e-4, 1e-3):
+            r = run(tools, fz)
+            if r is not None:
+                log(name, kind, 'needed fuzzy', fz, 'for one tool')
+                return r
+        b = tools[0].BoundingBox()
+        where = [round(v, 2) for v in (b.xmin, b.xmax, b.ymin, b.ymax, b.zmin, b.zmax)]
+        assert kind == 'fuse', (name, 'a keep-out cut fails in the kernel', where)
+        log(name, 'skipped a fill prism the kernel cannot fuse at', where, 'vol', round(tools[0].Volume(), 4))
+        return part
+    h = len(tools) // 2
+    log(name, kind, 'of', len(tools), 'tools gave a bad result; applying them in two halves')
+    part = safe_bool(kind, part, tools[:h], name, fuzzy)
+    return safe_bool(kind, part, tools[h:], name, fuzzy)
+
+
+def fuse_fills(part, fills, name):
+    """All fill prisms in one fuse. Each fuzzy fuse leaves the solid a little harder for the next,
+    so if the single fuse fails, every prism is first tried alone against the clean part (in
+    parallel) and the few the kernel can't take are left out of the one final fuse."""
+    import subprocess, tempfile
+    from concurrent.futures import ThreadPoolExecutor
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        part.exportBrep(str(d / 'p.brep'))
+        def run(ts, tag, timeout):
+            cq.Compound.makeCompound(ts).exportBrep(str(d / f't{tag}.brep'))
+            try:
+                subprocess.run([sys.executable, '-E', '-s', str(W / 'bool_worker.py'), 'fuse', '1e-5', str(d / 'p.brep'),
+                                str(d / f't{tag}.brep'), str(d / f'r{tag}.brep')], timeout=timeout, capture_output=True)
+            except subprocess.TimeoutExpired:
+                return None
+            if not (d / f'r{tag}.brep').exists():
+                return None
+            sols = sorted([s for s in cq.Shape.importBrep(str(d / f'r{tag}.brep')).Solids() if s.Volume() > 0],
+                          key=lambda s: -s.Volume())
+            if not sols or sum(s.Volume() for s in sols[1:]) > 0.5 or sols[0].Volume() < part.Volume() - 0.01:
+                return None
+            return sols[0]
+        r = run(fills, 'all', BOOL_TIMEOUT)
+        if r is not None:
+            return r
+        log(name, 'fuse of all', len(fills), 'fill prisms failed; trying each alone')
+        with ThreadPoolExecutor(10) as ex:
+            good = list(ex.map(lambda it: run([it[1]], it[0], 60) is not None, enumerate(fills)))
+        bad = [f for f, g in zip(fills, good) if not g]
+        for f in bad:
+            b = f.BoundingBox()
+            log(name, 'left out a fill prism the kernel cannot fuse at',
+                [round(v, 2) for v in (b.xmin, b.xmax, b.ymin, b.ymax, b.zmin, b.zmax)], 'vol', round(f.Volume(), 4))
+        keep = [f for f, g in zip(fills, good) if g]
+        r = run(keep, 'keep', BOOL_TIMEOUT) if keep else part
+    return r if r is not None else safe_bool('fuse', part, keep, name)
+
+
+def mesh_union_checked(part, fills, name):
+    v0 = part.Volume()
+    r, dv = mill.mesh_union(part, fills, log=lambda *a: log(name, *a))
+    # validity is restored when the STEP is written (validate_step heals and checks the volume)
+    assert r.Volume() > v0 - 0.01 and abs(r.Volume() - v0 - dv) < 0.05 * dv + 0.05, \
+        (name, 'mesh union', r.isValid(), v0, r.Volume(), dv)
+    return r, dv
+
+
+def make_machinable(part, opened, layers, side_cut, drill, name, mesh=False, extra=None):
+    """Cut the keep-outs as a Ø2 end mill makes them (dogboned, open toward the side they are cut
+    from), then fill whatever that mill still couldn't cut - never inside those keep-outs or the
+    drilled holes. The fill goes last: its fuse needs a fuzzy tolerance that slows any later boolean."""
+    part = max(part.Solids(), key=lambda s: s.Volume())
+    v0 = part.Volume()
+    for group in opened:   # one boolean per layer
+        if group:
+            part = safe_bool('cut', part, group, name)
+    part = part.clean()
+    part.exportBrep(str(W / f"cut_{name.replace(' ', '_')}.brep"))
+    log(name, 'keep-outs cut with dogbones:', round(v0 - part.Volume(), 1), 'mm^3 removed')
+    ko = mill.layer_keep_out(layers, side_cut)
+    fills = mill.hull_fill(part, keep_out=lambda a, b: mill.unary_union([drill, ko(a, b)] + [e(a, b) for e in extra or []]),
+                           log=lambda *a: log(name, *a))
+    v1 = part.Volume()
+    if fills and mesh:
+        # the bottom is the site's triangle mesh: an exact mesh union is quick where the kernel
+        # struggles with thousands of thin slices against its facets
+        part, _ = mesh_union_checked(part, fills, name)
+    elif fills:
+        part = fuse_fills(part, fills, name).clean()
+        log(name, 'filled:', round(part.Volume() - v1, 1), 'mm^3 added')
+    return part
 
 
 def heal_candidates(shape):
@@ -556,24 +725,34 @@ def drop_voids(solid):
     return filled
 
 
-def validate_step(shape, path):
-    """Write, read back; if the STEP round trip leaves the solid invalid, heal and try again."""
+def validate_step(shape, path, volume_tol=None, write_pcurves=True):
+    """Publish only a single valid solid that survives a volume-checked STEP round trip."""
     vol = shape.Volume()
-    tried = []
-    for src in (shape, None):
-        base = shape if src is not None else back
-        for how, cand in heal_candidates(base):
-            sols = cand.Solids()
-            if len(sols) != 1 or abs(sols[0].Volume() - vol) > 1e-5 * abs(vol) + 0.05:
-                tried.append((how, 'changed')); continue
-            cq.exporters.export(sols[0], str(path))
-            back = cq.importers.importStep(str(path)).val()
-            ok = back.isValid() and len(back.Solids()) == 1 and abs(back.Volume() - vol) < 1e-5 * abs(vol) + 0.05
-            tried.append((how, ok))
-            if ok:
-                if how != 'as is':
-                    log(path.name, 'healed by', how)
-                return back
+    tol = volume_tol if volume_tol is not None else 1e-4 * abs(vol) + 0.05
+    tried, back = [], None
+    pending = path.with_name(path.stem + '.pending.step')
+    try:
+        for src in (shape, None):
+            base = shape if src is not None else back
+            if base is None:
+                continue
+            for how, cand in heal_candidates(base):
+                sols = cand.Solids()
+                if len(sols) != 1 or abs(sols[0].Volume() - vol) > tol:
+                    tried.append((how, 'changed')); continue
+                if not sols[0].isValid():
+                    tried.append((how, 'invalid before export')); continue
+                sols[0].exportStep(str(pending), write_pcurves=write_pcurves)
+                back = cq.importers.importStep(str(pending)).val()
+                ok = back.isValid() and len(back.Solids()) == 1 and abs(back.Volume() - vol) <= tol
+                tried.append((how, ok))
+                if ok:
+                    pending.replace(path)
+                    if how != 'as is':
+                        log(path.name, 'healed by', how)
+                    return back
+    finally:
+        pending.unlink(missing_ok=True)
     raise AssertionError((path.name, tried))
 
 
@@ -593,12 +772,15 @@ def build(side, parts):
     k_xiao = xiao_keepout(side)
     under_board = board_prism(k_pcb)
     tools, n_merged = merge_under_switches(k_parts + k_pads, side, parts, under_board)
-    pads, where = thicken_thin_floors(tools, bot, SKIN)
+    # the bottom is cut from above: every keep-out as a pocket the Ø2 end mill can make
+    _, parts_layers = mill.open_tools(tools, 'above', 30.0, log=lambda *a: log(side, 'bottom (parts only)', *a))
+    pads, where = thicken_thin_floors(parts_layers, bot, SKIN)
+    tools = [k_pcb, k_xiao] + tools
+    bot_open, bot_layers = mill.open_tools(tools, 'above', 30.0, log=lambda *a: log(side, 'bottom', *a))
+    log(side, 'keep-outs: parts', len(k_parts), 'pads', len(k_pads), '-> merged under', n_merged, 'switches; total', len(tools))
     if pads:
         bot = bot.fuse(*pads).clean()
     log(side, 'thin pocket floors padded from below at', where)
-    tools = [k_pcb, k_xiao] + tools
-    log(side, 'keep-outs: parts', len(k_parts), 'pads', len(k_pads), '-> merged under', n_merged, 'switches; total', len(tools))
     keep = cq.Compound.makeCompound(tools)
 
     seam = SEAM_Z0 + SEAM_RAISE
@@ -606,22 +788,63 @@ def build(side, parts):
     # the bottom rim grows up by SEAM_RAISE under the old skirt footprint (old gap filled, new gap kept)
     ring = top.intersect(box(-50, 450, -300, 50, SEAM_Z0, seam - SEAM_GAP))
     skirt = ring.fuse(ring.translate(cq.Vector(0, 0, -SEAM_GAP - 0.05))).clean()
-    bosses = [top.intersect(cq.Solid.makeCylinder(PAD_R, PCB_TOP + C + 0.2, cq.Vector(sx, sy, PCB_TOP)))
-              for sx, sy in SCREWS[side]]
-    new_top = fast_cut(top_hi, tools)
-    log(side, 'top cut')
-    new_top = new_top.fuse(*[b for b in bosses if b.Solids()]).clean()
-    hole, insert, roof_z0, top_z = window_parts(side, top)
-    new_top = new_top.cut(hole).clean()
-    bones = dogbones(new_top)
-    new_top = new_top.cut(*bones).clean()
-    log(side, 'switch cut-outs with corner reliefs:', len(bones) // 4)
-    log(side, 'top done; roof underside', round(roof_z0, 3), 'top', round(top_z, 3))
-
-    new_bot = bot.fuse(skirt).clean()
-    new_bot = fast_cut(new_bot, tools).clean()
+    bot_raw = bot.fuse(skirt).clean()
+    cached = W / f'final_top_{side}.brep'
+    if '--reuse-top' in sys.argv and cached.exists():
+        # rebuild only the bottom: the top (and its insert) from the last run
+        new_top = cq.Shape.importBrep(str(cached))
+        insert = cq.Shape.importBrep(str(W / f'final_insert_{side}.brep'))
+        log(side, 'top and insert reused from', cached.name)
+    else:
+        new_top, insert = build_top(side, top, top_hi, tools, k_pcb, bot_raw)
+    new_bot = bot_raw
+    # where the top nests into the bottom above the board (the locating tongues and arches at the
+    # back wall), the bottom is cut back to NEST_GAP from the top, opened for the mill: the mill
+    # leaves up to ~0.22 mm on the top's arches, and the parts must still fit
+    bot_open, bot_layers = mill.open_tools(tools, 'above', 30.0, log=lambda *a: log(side, 'bottom', *a),
+                                           extra_entries=mill.grown_entries(new_top, NEST_GAP, 'above', 0.0, 5.0))
+    # the bottom is the site's triangle mesh: its cuts and fills run on exact meshes, where the
+    # kernel stalls on thin layers and thousands of thin fill slices against its facets
+    new_bot = mill.mesh_machinable(new_bot, tools, bot_open, bot_layers, 'above', drill_holes(side),
+                                   log=lambda *a: log(side, 'bottom', *a),
+                                   extra=[mill.solid_keep_out(new_top, SEAM_GAP)],   # stay clear of the top
+                                   flat_exempt=countersinks(side))
     log(side, 'bottom done')
+    return finish(side, new_top, new_bot, insert, tools, pcb, part_names)
 
+
+def build_top(side, top, top_hi, tools, k_pcb, bot_raw):
+    """The top straight from the original: every keep-out is cut once, already opened for the
+    mill (an exact cut first would leave faces at the same heights as the opened layers, and those
+    coplanar faces stall the kernel)."""
+    hole, plug, flange_box, roof_z0, top_z = window_parts(side, top)
+    new_top = top_hi.cut(hole).clean()
+    # flat end mills only: every sloped face becomes vertical walls / flat steps (countersinks stay)
+    flat = mill.flatten_slopes(new_top, exempt=countersinks(side), log=lambda *a: log(side, 'top', *a))
+    if flat:
+        new_top = max(safe_bool('cut', max(new_top.Solids(), key=lambda s: s.Volume()), flat, f'{side} top').Solids(),
+                      key=lambda s: s.Volume())
+    squares = switch_cutouts(new_top)
+    log(side, 'switch cut-outs:', len(squares))
+    # the 4 pad bosses (r = PAD_R, from the board up) stay; under them, down to the board, the
+    # board keep-out still applies
+    boss_disc = mill.unary_union([mill.sg.Point(sx, sy).buffer(PAD_R, quad_segs=mill.QS) for sx, sy in SCREWS[side]])
+    under_boss = [k_pcb.intersect(cq.Solid.makeCylinder(PAD_R + 0.01, 30 + PCB_TOP, cq.Vector(sx, sy, -30)))
+                  for sx, sy in SCREWS[side]]
+    under_boss = [b for b in under_boss if b.Solids()]
+    top_open, top_layers = mill.open_tools(tools + under_boss + squares + [hole], 'below', -30.0,
+                               exclude=lambda z: boss_disc if z > PCB_TOP + 1e-3 else mill.sg.Polygon(),
+                               log=lambda *a: log(side, 'top', *a))
+    # the fill stays SEAM_GAP clear of the bottom, and off the board keep-out (bosses included)
+    new_top = make_machinable(new_top, top_open, top_layers, 'below', drill_holes(side), f'{side} top',
+                              extra=[mill.solid_keep_out(bot_raw, SEAM_GAP), mill.solid_keep_out(k_pcb, 0.0)])
+    insert = window_insert(side, new_top, plug, flange_box, roof_z0, top_z)
+    new_top.exportBrep(str(W / f'final_top_{side}.brep')); insert.exportBrep(str(W / f'final_insert_{side}.brep'))
+    log(side, 'top done; roof underside', round(roof_z0, 3), 'top', round(top_z, 3))
+    return new_top, insert
+
+
+def finish(side, new_top, new_bot, insert, tools, pcb, part_names):
     sols_t = sorted(new_top.Solids(), key=lambda s: -s.Volume())
     sols_b = sorted(new_bot.Solids(), key=lambda s: -s.Volume())
     log(side, 'top solids', [round(s.Volume(), 2) for s in sols_t][:5], 'bottom solids', [round(s.Volume(), 2) for s in sols_b][:5])
@@ -636,7 +859,7 @@ def build(side, parts):
     if '--brep-only' in sys.argv:
         return None
     t = validate_step(new_top, OUT / f'TOTEM_alu_top_{side}.step')
-    b = validate_step(new_bot, OUT / f'TOTEM_alu_bottom_{side}.step')
+    b = validate_step(new_bot, OUT / f'TOTEM_alu_bottom_{side}.step', volume_tol=0.02, write_pcurves=False)
     i = validate_step(insert, OUT / f'TOTEM_wood_window_insert_{side}.step')
     cq.exporters.export(cq.Compound.makeCompound(tools), str(W / f'keepout_{side}.step'))
     cq.exporters.export(pcb, str(W / f'pcb_{side}.step'))

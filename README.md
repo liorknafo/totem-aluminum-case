@@ -1,10 +1,16 @@
 # TOTEM BLE case in aluminum
 
+The current machining rework has valid STEP solids, but remaining tool-access spots, tilted
+facets, and small seam-gap shortfalls still need attention. See `outputs/CHECKS.md`; the Ø2 mm / two-setup specification below
+is the design target, not a completed machining certification.
+
 The [TOTEM](https://github.com/GEIGEIGEIST/TOTEM) split keyboard's BLE case (tenting bottom + top),
 reworked so it can be machined from aluminum without shorting the PCB: every aluminum surface keeps
 at least 0.5 mm from the board, its pads and the metal parts on it, and a wood window over each
 XIAO BLE lets Bluetooth out. The parts fit 105 × 140 mm stock: 1/2" plate for the tops, 7/8" plate
-for the bottoms.
+for the bottoms. The machining target is a 3-axis mill, two setups, and flat end mills of Ø2 mm or
+larger: inside corners at least R1.05, pockets and slots at least 2.1 mm wide, and no overhangs
+(screw holes are drilled and countersunk).
 
 ![Both halves assembled, with keycaps](docs/images/case_assembled.png)
 
@@ -17,8 +23,9 @@ for the bottoms.
 | ![Side view, slightly exploded](docs/images/case_side.png) | |
 | Side view, slightly exploded: top, PCB, and the bottom with the battery in its pocket | |
 
-The renders come from the final STEP files (`work/stills_template.html`, the same scene as the
-interactive `outputs/TOTEM_3d_view.html`).
+The renders come from the STEP files (`work/stills_template.html`, the same scene as the
+interactive `outputs/TOTEM_3d_view.html`) before the Ø2 mm rework, so they still show the engraved
+logo on the tops; `outputs/TOTEM_3d_view.html` and `outputs/render3d_*.png` show the current parts.
 
 ## Files
 
@@ -29,7 +36,9 @@ interactive `outputs/TOTEM_3d_view.html`).
   - `TOTEM_3d_view.html`: interactive 3D view of the whole build (open in a browser; loads three.js
     from unpkg.com)
 - `work/`: the scripts that make and check the outputs
-  - `build.py L` / `build.py R` regenerates the outputs
+  - `build.py L` / `build.py R` regenerates the outputs (`--reuse-top` rebuilds only the bottom)
+  - `mill.py`: makes the parts cuttable with a Ø2 mm end mill (fill what it can't reach, cut the
+    keep-outs as it can make them); `machinable.py PART.step 2` checks a part
   - `check_all.sh` re-runs the checks and rewrites `CHECKS.md`
   - `orig/`: the input case files (copies; never modified)
 - `docs/images/`: the renders above

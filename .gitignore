@@ -30,3 +30,9 @@ work/*
 !work/export_view.py
 !work/pack_png.py
 !work/stills_template.html
+!work/mill.py
+!work/machinable.py
+!work/fit_check.py
+!work/seam_machined.py
+!work/bool_worker.py
+!work/test_mill.py

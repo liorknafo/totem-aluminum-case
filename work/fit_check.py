@@ -1,0 +1,36 @@
+"""Things the keep-outs don't cover but must still fit: the switch bodies in the top plate (plastic,
+they clip in) and the battery in the bottom. Overlap volumes, new parts vs the original ones."""
+import sys, json
+sys.path.insert(0, '.')
+from build import *
+import mill
+from common import placed
+
+
+def bvol(a, b):
+    i = a.intersect(b)
+    return round(i.Volume(), 4) if i.Solids() else 0.0
+
+
+parts = kicad_parts()
+out = {}
+for side in sys.argv[1:] or ['L', 'R']:
+    top, otop = load(f'../outputs/TOTEM_alu_top_{side}.step'), load(f'orig/TOTEM_case_ble_top_{side}_V.08.step')
+    bot, obot = load(f'../outputs/TOTEM_alu_bottom_{side}.step'), load(f'orig/TOTEM_tenting_live_bottom_{side}.step')
+    sw = []
+    for name, shp in parts:
+        bb = shp.BoundingBox()
+        if bb.zmax <= 8 or (side == 'L') != ((bb.xmin + bb.xmax) / 2 < 150):
+            continue
+        for s in shp.Solids():
+            if s.BoundingBox().zmin >= 0:
+                sw.append(place(lift(s), side))
+    sw = cq.Compound.makeCompound(sw)
+    # Case tessellation can have gaps; intersect the original solids instead.
+    bat = cq.Compound.makeCompound([mill.mesh_to_solid(m) for m in placed({'battery'}, side)])
+    r = {'switch bodies in the top, new / original (mm^3)': (bvol(top, sw), bvol(otop, sw)),
+         'battery in the bottom, new / original (mm^3)': (bvol(bot, bat), bvol(obot, bat))}
+    out[side] = r
+    for k, v in r.items():
+        print(side, k, v, flush=True)
+json.dump(out, open('fit_check.json', 'w'), indent=1)

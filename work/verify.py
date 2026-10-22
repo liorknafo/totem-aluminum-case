@@ -14,8 +14,10 @@ def dist(a, b, local=None):
                             bb.zmin - local, bb.zmax + local))
         if not a.Solids():
             return float(local), None
-    d = BRepExtrema_DistShapeShape(a.wrapped, b.wrapped)
+    d = BRepExtrema_DistShapeShape()
+    d.LoadS1(a.wrapped); d.LoadS2(b.wrapped)
     d.Perform()
+    assert d.IsDone(), 'distance calculation failed'
     p1, p2 = d.PointOnShape1(1), d.PointOnShape2(1)
     return d.Value(), (round(p1.X(), 2), round(p1.Y(), 2), round(p1.Z(), 2))
 
@@ -45,7 +47,8 @@ def check(side, parts):
         rep[name] = dist(a, b)
     # bosses only touch inside the floating pad
     for x, y in SCREWS[side]:
-        boss = top.intersect(box(x - 4, x + 4, y - 4, y + 4, PCB_TOP - 0.01, PCB_TOP + 0.01))
+        # around the screw only (a ±4 mm box would also catch the outer wall where it passes close by)
+        boss = top.intersect(cq.Solid.makeCylinder(PAD_R + 0.5, 0.02, cq.Vector(x, y, PCB_TOP - 0.01)))
         if not boss.Solids():
             rep.setdefault('boss contact outside r=2.5 (mm^3, must be 0)', []).append('no contact at z=1.6')
             continue
