@@ -121,6 +121,12 @@ size and everything that works (fit, clearances, screws, switch clips, leg reces
     filled;
   - the XIAO had 0.4999 mm in the tops; its pocket is now 0.52 mm all round (0.02 mm off the
     walls and roof — the wood insert's flange gets a 0.02 mm glue gap under the roof);
+  - the plate under the keycap wells was only 0.45–0.52 mm thick in five spots per top, where the
+    rounded ends of the diode pockets (cut from below) poke out from under the webs between the
+    wells. Each spot now has a 0.5 mm ledge on the well floor (z 3.65 → 4.15, 4.20 at the thumb
+    key), so the plate is at least 1.0 mm there. The ledges keep 0.3 mm from the switch housings
+    and 0.5 mm from the power switch and the XIAO; the keycaps, even fully
+    pressed, stay more than 3 mm above them;
   - metal slivers under 0.05 mm thick next to the four back screw bores (where a keep-out notch
     nearly touches the bore) removed: the notch opens into the bore;
   - the few corners the changes left that a Ø2 mill can't reach filled as the mill leaves them

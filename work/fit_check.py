@@ -1,5 +1,6 @@
 """Things the keep-outs don't cover but must still fit: the switch bodies in the top plate (plastic,
-they clip in) and the battery in the bottom. Overlap volumes, new parts vs the original ones."""
+they clip in), the keycaps pressed all the way down and the battery in the bottom. Overlap volumes,
+new parts vs the original ones."""
 import sys, json
 sys.path.insert(0, '.')
 from build import *
@@ -27,8 +28,11 @@ for side in sys.argv[1:] or ['L', 'R']:
                 sw.append(place(lift(s), side))
     sw = cq.Compound.makeCompound(sw)
     # Case tessellation can have gaps; intersect the original solids instead.
+    # the site's keycaps, pressed down the Choc switches' full 3 mm travel
+    caps = cq.Compound.makeCompound([mill.mesh_to_solid(m).translate(cq.Vector(0, 0, -3.0)) for m in placed({'keycap'}, side)])
     bat = cq.Compound.makeCompound([mill.mesh_to_solid(m) for m in placed({'battery'}, side)])
     r = {'switch bodies in the top, new / original (mm^3)': (bvol(top, sw), bvol(otop, sw)),
+         'keycaps pressed down (3 mm) in the top, new / original (mm^3)': (bvol(top, caps), bvol(otop, caps)),
          'battery in the bottom, new / original (mm^3)': (bvol(bot, bat), bvol(obot, bat))}
     out[side] = r
     for k, v in r.items():

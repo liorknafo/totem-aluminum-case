@@ -24,10 +24,10 @@ The top never touches the floating mounting pads either: it stays 0.1 mm above t
 
 ## Sizes
 
-- L top: [133.11, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17425.2]
+- L top: [133.11, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17453.4]
 - L bottom: [133.08, 98.99, 15.39, 'z', -11.4, 3.99], valid/solids/volume [True, 1, 69724.0]
 - L insert: [21.5, 17.0, 3.0, 'z', 7.5, 10.5], valid/solids/volume [True, 1, 916.8]
-- R top: [133.1, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17430.0]
+- R top: [133.1, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17457.8]
 - R bottom: [133.09, 98.99, 15.39, 'z', -11.4, 3.99], valid/solids/volume [True, 1, 69709.0]
 - R insert: [21.5, 17.0, 3.0, 'z', 7.5, 10.5], valid/solids/volume [True, 1, 919.2]
 
@@ -42,16 +42,16 @@ two regions is fitted once with lines and arcs (0.002 mm), and every region beco
 
 | Part | Faces | Arcs / lines in the outlines | Volume, build → clean (mm³) | STEP size |
 |---|---|---|---|---|
-| L top | 2636 | 689 / 1889 | 17435.4 → 17425.2 | 11 MB |
+| L top | 2900 | 754 / 2123 | 17435.4 → 17453.4 | 12 MB |
 | L bottom | 3961 | 1072 / 2922 | 69741.1 → 69724.0 | 17 MB |
-| R top | 2644 | 621 / 1967 | 17439.6 → 17430.0 | 11 MB |
+| R top | 2915 | 690 / 2206 | 17439.6 → 17457.8 | 12 MB |
 | R bottom | 3624 | 995 / 2598 | 69729.9 → 69709.0 | 15 MB |
 
 What the rebuild changed, part by part (all logged in `work/clean_*.log`):
 
-- L top: opening through the part at (51.77, -69.27), 0.010 mm², closed; XIAO pocket widened to 0.52 mm all round (1.13 mm³); hairline specks on the outer faces removed (0.172 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.08 mm³).
+- L top: opening through the part at (51.77, -69.27), 0.010 mm², closed; keycap-well floor at (127.24, -56.72) over a diode-pocket end raised 3.650 → 4.150 (3.63 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (120.24, -56.72) over a diode-pocket end raised 3.650 → 4.150 (3.63 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (91.26, -97.42) over a diode-pocket end raised 3.650 → 4.150 (24.51 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (49.08, -70.47) over a diode-pocket end raised 3.650 → 4.150 (8.57 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (33.92, -100.11) over a diode-pocket end raised 3.650 → 4.200 (13.13 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); XIAO pocket widened to 0.52 mm all round (1.13 mm³); hairline specks on the outer faces removed (0.172 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.74 mm³).
 - L bottom: 11 hairline horizontal cracks inside the part filled (largest 0.24 mm²); 0.55 mm floor at (130.36, -136.58), 0.79 mm², made 0.6 mm or more (pad underneath, -2.250 → -2.300); hairline specks on the outer faces removed (0.574 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.23 mm³).
-- R top: XIAO pocket widened to 0.52 mm all round (1.12 mm³); hairline specks on the outer faces removed (0.167 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.05 mm³).
+- R top: keycap-well floor at (274.02, -100.14) over a diode-pocket end raised 3.650 → 4.200 (12.67 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (258.85, -70.48) over a diode-pocket end raised 3.650 → 4.150 (8.33 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (216.81, -97.34) over a diode-pocket end raised 3.650 → 4.150 (23.80 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (189.16, -56.73) over a diode-pocket end raised 3.650 → 4.150 (3.74 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (182.16, -56.73) over a diode-pocket end raised 3.650 → 4.150 (3.74 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); XIAO pocket widened to 0.52 mm all round (1.12 mm³); hairline specks on the outer faces removed (0.167 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.70 mm³).
 - R bottom: opening through the part at (286.45, -107.01), 0.653 mm², closed; 2 hairline horizontal cracks inside the part filled (largest 0.01 mm²); 0.55 mm floor at (177.45, -136.6), 0.98 mm², made 0.6 mm or more (pad underneath, -2.250 → -2.300); 0.46 mm floor at (285.68, -106.9), 3.30 mm², made 0.6 mm or more (floor raised, -3.200 → -2.554); hairline specks on the outer faces removed (0.999 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (0.10 mm³).
 
 The published parts against the build's, column by column on a 0.05 mm grid (metal only in the
@@ -61,12 +61,17 @@ CAD, where the site's mesh had them faceted; strips one grid cell wide along the
 walls that moved by a few microns across a grid line:
 
 ```
-top L: volume old 17435.41 new 17425.24
-top L: removed: 11.952 mm^3 in total (columns differing by more than 0.005 mm); 3 spots over 0.05 mm^3
+top L: volume old 17435.41 new 17453.41
+top L: removed: 11.777 mm^3 in total (columns differing by more than 0.005 mm); 3 spots over 0.05 mm^3
 top L:      1.870 mm^3,  1.638 mm^2, up to 5.865 mm deep, at (  50.95,  -68.63) 7.80 x 1.40
 top L:      0.473 mm^3, 22.525 mm^2, up to 2.820 mm deep, at (  29.53,  -59.61) 1.45 x 18.85
 top L:      0.069 mm^3,  0.010 mm^2, up to 6.850 mm deep, at (  53.96,  -53.44) 0.05 x 0.20
-top L: added: 1.172 mm^3 in total (columns differing by more than 0.005 mm); 0 spots over 0.05 mm^3
+top L: added: 29.384 mm^3 in total (columns differing by more than 0.005 mm); 5 spots over 0.05 mm^3
+top L:     12.575 mm^3, 25.140 mm^2, up to 1.485 mm deep, at (  91.47,  -97.59) 11.80 x 7.35
+top L:      7.314 mm^3, 13.278 mm^2, up to 1.100 mm deep, at (  33.94,  -99.94) 9.25 x 3.55
+top L:      4.399 mm^3,  8.775 mm^2, up to 2.000 mm deep, at (  49.08,  -70.46) 7.20 x 2.25
+top L:      1.943 mm^3,  3.885 mm^2, up to 0.500 mm deep, at ( 120.24,  -56.70) 4.40 x 1.35
+top L:      1.943 mm^3,  3.885 mm^2, up to 0.500 mm deep, at ( 127.24,  -56.70) 4.40 x 1.35
 bottom L: volume old 69741.12 new 69724.21
 bottom L: removed: 17.157 mm^3 in total (columns differing by more than 0.005 mm); 34 spots over 0.05 mm^3
 bottom L:      2.014 mm^3,  7.812 mm^2, up to 9.430 mm deep, at (  56.97,  -52.74) 4.30 x 4.30
@@ -96,14 +101,18 @@ bottom L:      0.103 mm^3,  0.025 mm^2, up to 4.100 mm deep, at ( 141.86,  -47.7
 bottom L:      0.074 mm^3,  0.115 mm^2, up to 0.646 mm deep, at ( 107.33,  -95.66) 2.30 x 0.05
 bottom L:      0.063 mm^3,  0.548 mm^2, up to 4.795 mm deep, at ( 132.99, -138.10) 5.45 x 3.20
 bottom L:      0.056 mm^3,  0.010 mm^2, up to 5.600 mm deep, at ( 140.08,  -47.71) 0.20 x 0.05
-top R: volume old 17439.98 new 17430.04
-top R: removed: 9.768 mm^3 in total (columns differing by more than 0.005 mm); 5 spots over 0.05 mm^3
+top R: volume old 17439.98 new 17457.80
+top R: removed: 9.618 mm^3 in total (columns differing by more than 0.005 mm); 4 spots over 0.05 mm^3
 top R:      1.826 mm^3,  1.618 mm^2, up to 5.865 mm deep, at ( 256.99,  -68.64) 7.65 x 1.35
 top R:      0.485 mm^3, 23.538 mm^2, up to 0.300 mm deep, at ( 278.37,  -59.61) 1.50 x 18.85
 top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 269.05, -118.66) 0.15 x 0.05
-top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 214.51,  -97.53) 0.10 x 0.10
 top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 254.35,  -54.21) 0.15 x 0.15
-top R: added: 1.726 mm^3 in total (columns differing by more than 0.005 mm); 1 spots over 0.05 mm^3
+top R: added: 29.257 mm^3 in total (columns differing by more than 0.005 mm); 6 spots over 0.05 mm^3
+top R:     12.239 mm^3, 24.478 mm^2, up to 0.500 mm deep, at ( 216.52,  -97.55) 11.90 x 7.15
+top R:      7.028 mm^3, 12.770 mm^2, up to 1.100 mm deep, at ( 274.02,  -99.97) 9.15 x 3.25
+top R:      4.299 mm^3,  8.530 mm^2, up to 6.850 mm deep, at ( 258.86,  -70.47) 7.10 x 2.20
+top R:      1.986 mm^3,  3.973 mm^2, up to 0.500 mm deep, at ( 182.16,  -56.70) 4.45 x 1.35
+top R:      1.986 mm^3,  3.973 mm^2, up to 0.500 mm deep, at ( 189.16,  -56.70) 4.45 x 1.35
 top R:      0.091 mm^3,  0.020 mm^2, up to 5.150 mm deep, at ( 207.97, -128.11) 0.40 x 0.05
 bottom R: volume old 69729.95 new 69709.17
 bottom R: removed: 19.806 mm^3 in total (columns differing by more than 0.005 mm); 27 spots over 0.05 mm^3
@@ -168,9 +177,9 @@ new R through-openings: 4
 
 ## Thin walls compared with the original
 
-- L top: (87.1,-96.8) 0.52 mm (new); (93.2,-98.1) 0.52 mm (new); (49.4,-69.9) 0.52 mm (new)
+- L top: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
 - L bottom: (133.1,-138.2) 0.60 mm (new)
-- R top: (221.0,-96.8) 0.52 mm (new); (214.8,-98.0) 0.52 mm (new); (258.5,-69.9) 0.52 mm (new)
+- R top: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
 - R bottom: (174.8,-138.1) 0.60 mm (new); (180.0,-135.2) 0.60 mm (new)
 
 ## 3-axis machining with a Ø2 mm flat end mill
@@ -204,8 +213,10 @@ R: smallest vertical gap top/bottom: as modelled 0.20 mm, both parts as a Ø2 mm
 Parts that must still fit where no keep-out applies (overlap volume, new / original):
 
 - L switch bodies in the top, new / original (mm^3): [0.0, 0.0]
+- L keycaps pressed down (3 mm) in the top, new / original (mm^3): [0.0, 0.0]
 - L battery in the bottom, new / original (mm^3): [0.0, 0.0]
 - R switch bodies in the top, new / original (mm^3): [0.0, 0.0]
+- R keycaps pressed down (3 mm) in the top, new / original (mm^3): [0.0, 0.0]
 - R battery in the bottom, new / original (mm^3): [0.0, 0.0]
 
 ## Pictures

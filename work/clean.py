@@ -355,6 +355,55 @@ def xiao_box(side, c=XIAO_C):
     return f, 1.66 - c, 5.93 + c
 
 
+LEDGE = 1.0       # metal left over a pocket cut from below, where a well floor is open above (tops)
+LEDGE_GROW = 1.2  # a ledge covers its thin spot grown by this (bumps along a wall merge into one ledge)
+LEDGE_GAP = 0.5   # ... and keeps this far from every part above the floor (SWITCH_GAP from the
+SWITCH_GAP = 0.3  # switch housings: plastic, they clip into the plate)
+
+
+def raise_floors(L, P, Lb, keep, foot=None, skin=SKIN, ledge=LEDGE, grow=LEDGE_GROW, gap=LEDGE_GAP,
+                 log=log, name=''):
+    """Tops: where a floor open above (the keycap-well floor) is thinner than `skin` over a pocket
+    cut from below (the rounded ends of the diode pockets poke out from under the webs), put a
+    ledge on the floor: the thin spot grown by `grow` within that floor, clear of every part above
+    it (`keep`: (gap, solid) pairs; `foot`: a footprint kept out as it is, the XIAO's with its room), raised to
+    the pocket roof + `ledge` (rounded up to 0.05 mm)."""
+    import build
+    cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
+    zmax = max(c[1] for c in cols)
+    thin = [i for i, c in enumerate(cols) if c[1] - c[0] < skin - 1e-6 and c[1] < zmax - 1e-6 and P[i].area > 1e-3]
+    spots = []
+    for zt in sorted({cols[i][1] for i in thin}):
+        ids = [i for i in thin if cols[i][1] == zt]
+        floor = unary_union([q for q, c in zip(P, cols) if abs(c[1] - zt) < 1e-6])
+        th = unary_union([P[i] for i in ids])
+        for piece in mill.pieces(th.buffer(grow).intersection(floor)):
+            mine = [i for i in ids if P[i].intersects(piece)]
+            if not mine:
+                continue
+            h = np.ceil((max(cols[i][0] for i in mine) + ledge) / 0.05 - 1e-6) * 0.05
+            x0, y0, x1, y1 = piece.buffer(gap + 1).bounds
+            out = [foot] if foot is not None and foot.intersects(piece.buffer(gap + 1)) else []
+            for g, s in keep:
+                b = s.BoundingBox()
+                if b.xmin > x1 or b.xmax < x0 or b.ymin > y1 or b.ymax < y0 or b.zmin > h + g or b.zmax < zt:
+                    continue
+                cut = s.intersect(build.box(x0, x1, y0, y1, zt, h + g))
+                vs = [v.toTuple()[:2] for v in cut.Vertices()]
+                if len(vs) >= 3:
+                    out.append(sg.MultiPoint(vs).convex_hull.buffer(g))
+            left = piece.difference(unary_union(out)) if out else piece
+            for g in mill.pieces(left):
+                if any(P[i].intersects(g) for i in mine):
+                    spots.append((g, 'top', h))
+            bare = th.intersection(piece).difference(left).area
+            log(name, f'ledge at', np.round(piece.centroid.coords[0], 2), f'{left.area:.2f} mm^2 raised {zt:.3f} -> {h:.3f}'
+                + (f'; {bare:.3f} mm^2 of the thin spot too close to a part' if bare > 1e-3 else ''))
+    if not spots:
+        return L, P, Lb
+    return fill_spots(L, P, Lb, spots, name=name, what='ledge')
+
+
 R_REPAIR = 0.97   # a Ø2 mm end mill must reach every void (machinable.py: R1 less its 0.03 tolerance)
 DEPTH_TOL = 0.03  # ... and leaves less than this (machinable.py ignores shallower spots)
 SPOT_W = 0.03     # unreachable bits narrower than 2x this are slivers of the polygonal arcs, not spots
@@ -807,7 +856,7 @@ def checker_spots(solid, drill_r=None, screws=()):
     return out
 
 
-def fill_spots(L, P, Lb, spots, log=log, name=''):
+def fill_spots(L, P, Lb, spots, log=log, name='', what='checker spot'):
     """Raise (lower) the columns in each checker spot to the height the mill leaves there."""
     cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
     nP, ncols, added = [], [], 0.0
@@ -828,8 +877,8 @@ def fill_spots(L, P, Lb, spots, log=log, name=''):
         for g in mill.pieces(rest):
             nP.append(g); ncols.append(c)
     for poly, side, h in spots:
-        log(name, f'checker spot ({side}) at', np.round(poly.centroid.coords[0], 2), f'{poly.area:.3f} mm^2 filled to {h:.3f}')
-    log(name, f'checker spots filled: {added:.3f} mm^3 added')
+        log(name, f'{what} ({side}) at', np.round(poly.centroid.coords[0], 2), f'{poly.area:.3f} mm^2 filled to {h:.3f}')
+    log(name, f'{what}s filled: {added:.3f} mm^3 added')
     L2 = np.unique(np.r_[L, [z for c in ncols for z in c]])
     idx = {float(z): k for k, z in enumerate(L2)}
     return L2, nP, [(idx[float(zb)], idx[float(zt)] - 1) for zb, zt in ncols]
@@ -856,6 +905,7 @@ def rebuild(shape, screws, kind, name='', mesh_tol=0.0005, keep=None, side=None)
     if kind == 'top' and side is not None:
         foot, z0, z1 = xiao_box(side)
         L, P, Lb = widen_pocket(L, P, Lb, foot, z0, z1, name=name)
+        L, P, Lb = raise_floors(L, P, Lb, keep or [], foot=foot, name=name)
     L, P, Lb, fills = mill_repair(L, P, Lb, name=name)
     vol = sum(q.area * (L[t + 1] - L[b]) for q, (b, t) in zip(P, Lb))
     log(name, f'regions volume (holes filled) {vol:.2f}')
@@ -874,6 +924,20 @@ def rebuild(shape, screws, kind, name='', mesh_tol=0.0005, keep=None, side=None)
     log(name, 'final: valid', solid.isValid(), 'faces', len(solid.Faces()), 'volume', round(solid.Volume(), 2),
         '(was', round(shape.Volume(), 2), ')')
     return solid, dict(levels=L, regions=P, labels=Lb)
+
+
+def top_parts(side):
+    """Every KiCad part solid on this half, placed as the case sees it (as verify.py does), with
+    the room a ledge keeps from it: (gap, solid)."""
+    import build
+    out = []
+    for nm, shp in build.kicad_parts():
+        bb = shp.BoundingBox()
+        if (side == 'L') != ((bb.xmin + bb.xmax) / 2 < 150) or nm.startswith('J'):
+            continue
+        g = SWITCH_GAP if nm.startswith('SW') else LEDGE_GAP
+        out += [(g, build.place(build.lift(s) if s.BoundingBox().zmin > 0.75 else s, side)) for s in shp.Solids()]
+    return out
 
 
 def make_solid(L, P, Lb, screws, kind, name=''):
@@ -916,7 +980,7 @@ if __name__ == '__main__':
         EVENTS.clear()
         s = cq.Shape.importBrep(src) if src.endswith('.brep') else load(src)
         s = max(s.Solids(), key=lambda x: x.Volume())
-        keep = load(f'keepout_{side}.step').Solids() if kind == 'bottom' else None
+        keep = load(f'keepout_{side}.step').Solids() if kind == 'bottom' else top_parts(side)
         out, _ = rebuild(s, build.SCREWS[side], kind, name=f'{side} {kind}', keep=keep, side=side)
         if dst.endswith('.step'):
             out.exportBrep(str(W / f'clean_{kind}_{side}.brep'))

@@ -139,6 +139,27 @@ class CleanTests(unittest.TestCase):
         self.assertAlmostEqual(s.Volume(), 16 * 2 - np.pi * 1.2 ** 2 + 8, delta=1e-3)
         self.assertTrue(any(f.geomType() == 'CYLINDER' for f in s.Faces()))
 
+    def test_ledge_over_a_thin_well_floor_keeps_clear_of_parts(self):
+        # a web (top 10.5) with a well floor beside it (plate 2.45..3.65); the round end of a
+        # pocket from below pokes out from under the web, leaving 0.515 mm of floor over it
+        import shapely.geometry as sg
+        from shapely.ops import unary_union
+        import build
+        quiet = lambda *a: None
+        disc = sg.Point(2, 2).buffer(1.0, quad_segs=32).intersection(sg.box(0, 2, 4, 10))
+        P = [sg.box(0, 0, 4, 2), disc, sg.box(0, 2, 4, 10).difference(disc)]
+        L = np.array([2.45, 3.135, 3.65, 10.5])
+        Lb = [(1, 2), (1, 1), (0, 1)]
+        part = build.box(0, 4, 3.5, 10, 3.65, 5.0)   # a switch housing standing on the floor
+        L2, P2, Lb2 = clean.raise_floors(L, P, Lb, [(0.5, part)], log=quiet)
+        cols = [(L2[b], L2[t + 1]) for b, t in Lb2]
+        over = [c for q, c in zip(P2, cols) if q.intersection(disc).area > 1e-6]
+        self.assertTrue(over and all(zt - zb >= 1.0 - 1e-6 for zb, zt in over))
+        ledge = unary_union([q for q, (zb, zt) in zip(P2, cols) if 3.66 < zt < 10])
+        self.assertAlmostEqual(max(zt for zb, zt in cols if 3.66 < zt < 10), 4.15)
+        self.assertLessEqual(ledge.bounds[3], 3.0 + 1e-6)   # 0.5 mm from the part
+        self.assertGreater(ledge.area, disc.area)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -89,6 +89,9 @@ for (side, part), t in _ev.items():
                      f'{m.group(6)} → {m.group(7)})')
     for m in _re.finditer(r'joint ([\d.]+) mm over ([\d.]+) mm at \[\s*([-\d.]+)\s+([-\d.]+)\s*\]', t):
         items.append(f'knife-edge joint ({m.group(1)} mm overlap) at ({m.group(3)}, {m.group(4)}) made 0.6 mm')
+    for m in _re.finditer(r'ledge at \[\s*([-\d.]+)\s+([-\d.]+)\s*\] ([\d.]+) mm\^2 raised ([-\d.]+) -> ([-\d.]+)', t):
+        items.append(f'keycap-well floor at ({m.group(1)}, {m.group(2)}) over a diode-pocket end raised {m.group(4)} → '
+                     f'{m.group(5)} ({m.group(3)} mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more)')
     m = _re.search(r'pocket widened: ([\d.]+) mm', t)
     if m:
         items.append(f'XIAO pocket widened to 0.52 mm all round ({m.group(1)} mm³)')
