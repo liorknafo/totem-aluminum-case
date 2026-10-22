@@ -1,8 +1,10 @@
 # TOTEM BLE case — aluminum version (no contact with the PCB)
 
 Machining: all four aluminum parts can be cut on a 3-axis mill in two setups with flat end mills
-of Ø2 mm or bigger — no ball-nose tool. Every face is vertical or flat except the 90° screw
-countersinks (countersink bit). The checks are in `CHECKS.md`.
+of Ø2 mm or bigger — no ball-nose tool. They are clean CAD: every face exactly vertical or flat,
+outlines drawn with lines and true arcs, except the **82°** screw countersinks (an 82° countersink
+bit, as in the original design; a 90° one would not seat the screw heads flush). The checks are
+in `CHECKS.md`.
 
 Made from copies of the four files in `~/Downloads/TOTEM_cases_STEP` (those originals are untouched;
 their SHA-256 still match `validation.json`). Units mm, same coordinates as the originals.
@@ -83,9 +85,10 @@ The implemented machining changes are:
   so the mill makes it exactly: the mill leaves up to ~0.2 mm on the top's arches, and with this the
   vertical gap is 0.20 mm after machining (exact 3D minimum ≈0.2 mm, more than the original
   design's 0.15 mm). The seam line on the back wall is 0.25 mm wider above the board;
-- the screw holes are drilled, not milled: Ø2.0 neck in the top (with its 90° countersink above
-  and the Ø3.2 bore below) and Ø2.16 in the bottom (Ø4.25 counterbore and countersink below). The
-  countersinks want a countersink or chamfer tool: a flat end mill can't finish their narrow end.
+- the screw holes are drilled, not milled, with the original design's sizes: in the top a Ø2.0
+  neck with an 82° countersink above (Ø4.30 at the top face) and a Ø3.2 bore below; in the bottom a
+  Ø2.0 neck with an 82° countersink below, down to a Ø4.30 counterbore. The countersinks want an
+  82° countersink bit: a flat end mill can't finish their narrow end.
 
 - strict 2.5D (no ball-nose mill): every sloped face became vertical walls and flat floors. The
   power-switch and reset bevels are straight openings at their outer size, the arches at the back
@@ -95,10 +98,36 @@ The implemented machining changes are:
 - R1.05 reliefs where the steps left a corner the Ø2 mill couldn't reach (3 per bottom, ≈15 mm³
   each half), also removal only.
 
-The bottoms come from the site's triangle mesh, so their STEP faces are flat facets (as before);
-the few curved faces on the bottom rim are facets within 0.001 mm. Facets tilted by less than
-0.01° (rounding in the mesh booleans, under 0.002 mm across a wall) are reported in `CHECKS.md`
-but are not slopes a mill can see.
+## Clean CAD (2026-10-22)
+
+The four aluminum parts were then rebuilt as clean CAD (`work/clean.py`), keeping the overall
+size and everything that works (fit, clearances, screws, switch clips, leg recesses):
+
+- every face is exactly vertical or flat: no more facets tilted by hundredths of a degree, and no
+  more hairline micro-ledges (steps of a few microns between nearly identical walls, left by the
+  mesh booleans). Outlines are lines and true arcs — the R1.05 dogbones, the bosses and the rounded
+  corners are single arcs a CAM program can follow in one move;
+- the bottoms are no longer the site's triangle mesh: the STEP files are now 11–17 MB (were
+  25–82 MB) and every part passes the OpenCASCADE checks with no warnings at all;
+- the screw holes are the exact cylinders and 82° cones of the original CAD (the site's mesh had
+  them faceted, off by up to 0.03 mm);
+- fixed on the way:
+  - the right bottom had a **slot through the part** (0.65 mm², at its right edge by the leg
+    recess): the 22° ramp's steps had cut through a 0.4 mm floor. Closed, and that floor raised to
+    its neighbours' top (1.1 mm thick now; the socket keep-out above allows it);
+  - floors thinner than 0.6 mm made 0.6 mm (one small spot per bottom at the front rim: a 0.05 mm
+    pad underneath);
+  - hairline cracks inside the bottoms (horizontal gaps thinner than 0.05 mm, the largest 0.24 mm²)
+    filled;
+  - the XIAO had 0.4999 mm in the tops; its pocket is now 0.52 mm all round (0.02 mm off the
+    walls and roof — the wood insert's flange gets a 0.02 mm glue gap under the roof);
+  - metal slivers under 0.05 mm thick next to the four back screw bores (where a keep-out notch
+    nearly touches the bore) removed: the notch opens into the bore;
+  - the few corners the changes left that a Ø2 mill can't reach filled as the mill leaves them
+    (under 1 mm³ per part).
+
+Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the outer faces (at most
+0.05 mm deep) and the exact screw holes; `CHECKS.md` lists every spot that differs from the build.
 
 ## Machining notes
 
@@ -109,7 +138,8 @@ but are not slopes a mill can see.
   ledge (reached from below through the 16 mm recesses, ~4 mm below the top's underside face) and
   the keycap-well corners (6.85 mm deep from the top face).
 - All 2.5D: pockets and contours only, vertical walls and flat floors, flat end mills of Ø2 mm or
-  larger. Only the 90° screw countersinks are conical (countersink bit); screw holes are drilled.
+  larger. Only the 82° screw countersinks are conical (82° countersink bit); screw holes are
+  drilled Ø2.0 as in the original — open them to Ø2.2 if your M2 screws bind.
 - Behind the reset button's round hole the wall is 0.59 mm thick over a small area (in front of
   the switch-body pocket): take a light finishing pass there.
 - The panel tabs on the PCB edge (mouse-bites) must be sanded flush — clearances were measured
@@ -126,7 +156,7 @@ the original; renders).
 
 Original design: TOTEM, Copyright (c) 2022 GEIST, CERN-OHL-P v2 (see `LICENSE.md`).
 Modified 2026-10-20 for an aluminum case as described above; 2026-10-21/22 made cuttable in two
-setups with Ø2 mm flat end mills, strictly 2.5D.
+setups with Ø2 mm flat end mills, strictly 2.5D, and rebuilt as clean CAD.
 
 ## 3D view
 

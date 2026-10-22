@@ -1,8 +1,9 @@
 # TOTEM BLE case in aluminum
 
-The current machining rework has valid STEP solids, but remaining tool-access spots, tilted
-facets, and small seam-gap shortfalls still need attention. See `outputs/CHECKS.md`; the Ø2 mm / two-setup specification below
-is the design target, not a completed machining certification.
+All four aluminum parts are clean 2.5D CAD — every face exactly vertical or flat, outlines in
+lines and true arcs, only the 82° screw countersinks conical — and the checks in
+`outputs/CHECKS.md` find no spot a Ø2 mm flat end mill can't reach from above or below, no
+undercut, and no aluminum within 0.5 mm of the board, its pads or its metal parts.
 
 The [TOTEM](https://github.com/GEIGEIGEIST/TOTEM) split keyboard's BLE case (tenting bottom + top),
 reworked so it can be machined from aluminum without shorting the PCB: every aluminum surface keeps
@@ -23,9 +24,8 @@ larger: inside corners at least R1.05, pockets and slots at least 2.1 mm wide, a
 | ![Side view, slightly exploded](docs/images/case_side.png) | |
 | Side view, slightly exploded: top, PCB, and the bottom with the battery in its pocket | |
 
-The renders come from the STEP files (`work/stills_template.html`, the same scene as the
-interactive `outputs/TOTEM_3d_view.html`) before the Ø2 mm rework, so they still show the engraved
-logo on the tops; `outputs/TOTEM_3d_view.html` and `outputs/render3d_*.png` show the current parts.
+The renders come from the current STEP files (`work/stills_template.html`, the same scene as the
+interactive `outputs/TOTEM_3d_view.html`).
 
 ## Files
 
@@ -36,9 +36,12 @@ logo on the tops; `outputs/TOTEM_3d_view.html` and `outputs/render3d_*.png` show
   - `TOTEM_3d_view.html`: interactive 3D view of the whole build (open in a browser; loads three.js
     from unpkg.com)
 - `work/`: the scripts that make and check the outputs
-  - `build.py L` / `build.py R` regenerates the outputs (`--reuse-top` rebuilds only the bottom)
+  - `build.py L` / `build.py R` makes the parts (`--reuse-top` rebuilds only the bottom)
   - `mill.py`: makes the parts cuttable with a Ø2 mm end mill (fill what it can't reach, cut the
     keep-outs as it can make them); `machinable.py PART.step 2` checks a part
+  - `clean.py --all` rebuilds the build's four aluminum parts as clean CAD (flat and vertical
+    faces only, lines and true arcs, exact drilled holes) and writes them to `outputs/`;
+    `diff_mesh.py OLD NEW` shows where two versions of a part differ
   - `check_all.sh` re-runs the checks and rewrites `CHECKS.md`
   - `orig/`: the input case files (copies; never modified)
 - `docs/images/`: the renders above
@@ -53,6 +56,7 @@ matplotlib and scipy. From `work/`:
 ```sh
 python -E -s build.py L
 python -E -s build.py R
+python -E -s clean.py --all
 PYTHON=python ./check_all.sh
 ```
 

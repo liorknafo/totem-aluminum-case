@@ -36,3 +36,6 @@ work/*
 !work/seam_machined.py
 !work/bool_worker.py
 !work/test_mill.py
+!work/clean.py
+!work/fit2d.py
+!work/diff_mesh.py

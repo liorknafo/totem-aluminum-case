@@ -15,6 +15,8 @@ $P -E -s under_cmp.py > /dev/null 2>&1
 # 3-axis, Ø2 mm flat end mill, from above and below (screw holes are drilled)
 (for s in L R; do for p in top bottom; do $P -E -s machinable.py ../outputs/TOTEM_alu_${p}_$s.step 2 --drill $s --png mach_${p}_$s.png 2>&1 | grep -v Warn; done
   $P -E -s machinable.py ../outputs/TOTEM_wood_window_insert_$s.step 2 2>&1 | grep -v Warn; done) > machinable.txt
+# the published parts against the build's (before the clean CAD rebuild), column by column
+(for s in L R; do for p in top bottom; do $P -E -s diff_mesh.py final_${p}_$s.brep ../outputs/TOTEM_alu_${p}_$s.step 0.05 2>&1 | grep -v Warn | sed "s/^/$p $s: /"; done; done) > clean_diff.txt
 $P -E -s fit_check.py L R > fit_check.log 2>&1
 $P -E -s seam_machined.py L R 2>&1 | grep -v Warn > seam_machined.txt
 $P -E -s write_checks.py > write_checks.log 2>&1

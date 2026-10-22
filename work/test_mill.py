@@ -10,6 +10,8 @@ import trimesh
 
 import machinable
 import mill
+import fit2d
+import clean
 import build
 import verify
 
@@ -96,6 +98,46 @@ class MeshTests(unittest.TestCase):
                     build.validate_step(solid, path, volume_tol=0.02, write_pcurves=False)
             self.assertEqual(path.read_text(), 'previous checked file')
             self.assertFalse(path.with_name('part.pending.step').exists())
+
+
+class CleanTests(unittest.TestCase):
+    def test_fit_recovers_lines_and_arcs(self):
+        t = np.linspace(0, np.pi, 13)
+        P = np.r_[np.c_[np.linspace(0, 10, 5), np.zeros(5)][:-1],
+                  np.c_[10 + 1.05 * np.sin(t), 1.05 - 1.05 * np.cos(t)][:-1],
+                  np.c_[np.linspace(10, 0, 5), np.full(5, 2.1)]]
+        pr = fit2d.fit(P, 0.002)
+        self.assertEqual([p[0] for p in pr], ['line', 'arc', 'line'])
+        self.assertAlmostEqual(pr[1][4], 1.05, places=6)
+
+    def test_no_arc_across_a_long_gap(self):
+        # four points on a big circle, three of them bunched: an arc through them would bulge
+        # far from the long chord
+        a = np.radians([0, 1, 2, 60])
+        P = 20 * np.c_[np.cos(a), np.sin(a)]
+        self.assertTrue(all(p[0] == 'line' for p in fit2d.fit(P, 0.002)))
+
+    def test_hole_radius_follows_the_82_degree_countersinks(self):
+        self.assertAlmostEqual(clean.hole_radius('top', 5.0), 1.6)
+        self.assertAlmostEqual(clean.hole_radius('top', 10.5), 1.575 + (10.5 - 9.8385) * np.tan(np.radians(41)))
+        self.assertAlmostEqual(clean.hole_radius('bottom', -0.6), 1.0)
+        self.assertAlmostEqual(clean.hole_radius('bottom', -5.0), 2.15)
+
+    def test_region_prisms_fuse_to_one_clean_solid(self):
+        # two columns side by side sharing a wall, one with a round pocket from above
+        import shapely.geometry as sg
+        L = np.array([0.0, 1.0, 2.0])
+        P = [sg.box(0, 0, 4, 4).difference(sg.Point(2, 2).buffer(1.2, quad_segs=32)), sg.Point(2, 2).buffer(1.2, quad_segs=32),
+             sg.box(4, 0, 6, 4)]
+        Lb = [(0, 1), (0, 0), (0, 0)]
+        P, Lb = clean.tidy_regions(P, Lb, L, log=lambda *a: None)
+        C, seg = clean.chains(P)
+        faces, F = clean.checked_faces(P, C, seg, log=lambda *a: None)
+        s = clean.fuse_all(clean.blocks(L, Lb, faces))
+        self.assertTrue(s.isValid())
+        self.assertEqual(len(s.Solids()), 1)
+        self.assertAlmostEqual(s.Volume(), 16 * 2 - np.pi * 1.2 ** 2 + 8, delta=1e-3)
+        self.assertTrue(any(f.geomType() == 'CYLINDER' for f in s.Faces()))
 
 
 if __name__ == '__main__':
