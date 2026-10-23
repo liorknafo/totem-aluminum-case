@@ -113,15 +113,16 @@ for (side, part), t in _ev.items():
     lines.append(f'- {side} {part}: ' + '; '.join(items) + '.')
 lines += ['', 'The published parts against the build\'s, column by column on a 0.05 mm grid (metal only in the',
           'build\'s part = removed, only in the published part = added; spots over 0.05 mm³). The screw holes',
-          'show up because they are now the exact Ø2.0 / 82° / Ø4.3 (bottom) and Ø3.2 (top) holes of the original',
-          'CAD, where the site\'s mesh had them faceted; strips one grid cell wide along the outer faces are',
-          'walls that moved by a few microns across a grid line:', '', '```'] + \
+          'show up because they changed: a Ø2.4 hole under a 90° countersink in the top (was a Ø3.2 standoff bore),',
+          'a blind Ø1.6 tap-drill hole in the bottom (was a counterbore and countersink from below); strips one',
+          'grid cell wide along the outer faces are walls that moved by a few microns across a grid line:', '', '```'] + \
          open(W / 'clean_diff.txt').read().strip().splitlines() + ['```']
 lines += ['', '## Solid checks', '', '```'] + open(W / 'argan_all.log').read().strip().splitlines() + ['```', '',
           '`InvalidCurveOnSurface` is a tolerance note normal after a STEP round trip.', '',
           '## Holes through the bottom', '',
-          'Every vertical line through each bottom was ray-cast (0.25 mm grid). The only openings through',
-          'the part are the screw holes; no socket pocket breaks through into the leg recesses any more',
+          'Every vertical line through each bottom was ray-cast (0.25 mm grid). Nothing goes through the',
+          'bottom any more (the screw holes are blind tapped holes from above), and no socket pocket breaks',
+          'through into the leg recesses',
           '(see `underside_holes.png`):', '', '```'] + open(W / 'through.txt').read().strip().splitlines() + ['```', '',
           '## Thin walls compared with the original', '']
 for side in 'LR':
@@ -148,7 +149,7 @@ lines += ['', '## 3-axis machining with a Ø2 mm flat end mill', '',
           'surface a Ø2 mm flat end mill leaves is the grey-level closing of the part\'s height map by a 1 mm',
           'disc; any spot where the part lies deeper than that (material the mill can\'t remove: a slot',
           'narrower than 2 mm, an inside corner sharper than R1, a pocket hidden under an overhang) is',
-          'counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.0 necks) and not counted. Tilted faces outside the countersinks are reported separately;',
+          'counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.4 in the top, Ø1.6 tap drill in the bottom) and not counted. Tilted faces outside the countersinks are reported separately;',
           'they must be horizontal or vertical for a strict 2.5D result. Pictures: `work/mach_*.png`.', '', '```'] + mach + ['```', '',
           'Measured fit after machining (smallest vertical gap between the top\'s underside',
           'and the bottom\'s top face, each as the Ø2 mm end mill leaves it):', '', '```'] + \

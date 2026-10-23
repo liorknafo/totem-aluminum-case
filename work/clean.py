@@ -26,17 +26,15 @@ FIT_TOL = 0.002   # lines and arcs stay this close to the region outlines
 DISC_R = 2.3      # screw holes: inside this radius the column is filled, then drilled exactly
 OPEN_MAX = 5.0    # through-openings smaller than this (mm^2) are accidents and get closed
 SKIN = 0.8        # thinnest floor between a pocket and the underside
-TAN41 = np.tan(np.radians(41.0))   # 82° countersinks (cone semi-angle 41°, as in the originals)
-# Screw holes. Top: Ø3.2 bore for the 6 mm round standoff from below up to TOP_BORE (the
-# original's 9.0 left a 0.18 mm neck under the countersink; the standoff now sits 1 mm lower,
-# 2.0..8.0), Ø2.0 neck, 82° countersink (r 1.575 at TOP_CONE) to Ø4.30 at the top face.
-# Bottom: Ø4.30 counterbore up from the underside, 82° countersink (r 1.575 at BOT_CONE; the
-# original's -1.3385 left a 0.13 mm neck under the boss top, the screw now sits 0.9 mm deeper),
-# Ø2.0 neck through the boss top.
-TOP_BORE, TOP_CONE = 8.0, 9.8385
-BOT_CONE = -1.3385 - 0.9
-BOT_CB = BOT_CONE - (2.15 - 1.575) / TAN41   # where the countersink meets the counterbore
-BUILD_HOLES = dict(bore=9.0, cone=-1.3385)   # the holes as the build (and the originals) has them
+TAN41 = np.tan(np.radians(41.0))   # the build's (the originals') 82° countersinks: semi-angle 41°
+# Screw holes (aluminum: the M2 threads are tapped in the bottom, no standoffs). Top: 90° metric
+# countersink, Ø4.30 at the top face (TOP_FACE), and a Ø2.4 pass-through hole (TOP_NECK) down
+# through the boss. Bottom: a blind Ø1.6 tap-drill hole (BOT_TAP) from the boss top down to
+# BOT_DRILL (0.8 mm over the leg recess under the 131.2 / 176.8 screws), tapped M2 x 0.4 5.5 mm
+# deep (an M2 x 16 countersunk screw engages 5.2 mm); the underside stays solid.
+TOP_FACE, TOP_CS_R, TOP_NECK = 10.5, 2.15, 1.2
+BOT_TAP, BOT_DRILL = 0.8, -6.5
+
 
 T0 = time.monotonic()
 
@@ -56,15 +54,20 @@ def band_sections(m):
     return L, S
 
 
-def hole_radius(kind, z, bore=TOP_BORE, cone=BOT_CONE):
-    """Radius of the screw hole's void at height z (see hole_profiles)."""
+def hole_radius(kind, z):
+    """Radius of the screw hole's void at height z (see hole_profiles); 0 where there is none."""
     if kind == 'top':
-        if z < bore:
-            return 1.6
-        return max(1.0, 1.575 + (z - TOP_CONE) * TAN41)
-    if z < cone - (2.15 - 1.575) / TAN41:
-        return 2.15
-    return max(1.0, 1.575 + (cone - z) * TAN41)
+        return max(TOP_NECK, TOP_CS_R + (z - TOP_FACE))   # 90°: the cone's radius grows 1:1
+    return BOT_TAP if z > BOT_DRILL else 0.0
+
+
+def build_hole_radius(kind, z):
+    """The holes as the build (and the originals) has them: top Ø3.2 standoff bore to 9.0, Ø2.0
+    neck, 82° countersink (r 1.575 at 9.8385); bottom Ø4.30 counterbore up to -2.0, 82°
+    countersink (r 1.575 at -1.3385), Ø2.0 neck."""
+    if kind == 'top':
+        return 1.6 if z < 9.0 else max(1.0, 1.575 + (z - 9.8385) * TAN41)
+    return 2.15 if z < -2.0 else max(1.0, 1.575 + (-1.3385 - z) * TAN41)
 
 
 def plug_screws(S, L, screws, kind):
@@ -76,7 +79,7 @@ def plug_screws(S, L, screws, kind):
     out, discs = [], []
     for k, g in enumerate(S):
         a, b = L[k], L[k + 1]
-        r = max(max(hole_radius(kind, z), hole_radius(kind, z, **BUILD_HOLES)) for z in np.linspace(a, b, 9))
+        r = max(max(hole_radius(kind, z), build_hole_radius(kind, z)) for z in np.linspace(a, b, 9))
         for x, y in screws:
             d = sg.Point(x, y).buffer(r, quad_segs=64)
             ring = d.buffer(0.1, quad_segs=64).difference(d)
@@ -475,6 +478,86 @@ def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log
     return fill_spots(L, P, Lb, spots, name=name, what='keycap-well wall')
 
 
+SEAM_FLAT_GAP = 0.4   # the back seam made plain: the top's back wall stops this far over the bottom's
+
+
+def back_seam_runs(side, y_out=-47.8, y_in=-48.6, y_lip=-48.8, step=0.05, min_len=2.0):
+    """Where the back seam is a tongue and groove whose bottom half is castellated (the original's
+    arches, cut as 2.5D steps): runs along x with the bottom's flat ledge inside at h, its outer
+    lip at most 0.75 mm above that, the top's underside over the lip about 1.1 mm up and its inner
+    lip 0.4 mm up. [(x0, x1, h)] from the build's parts (both parts use the same runs)."""
+    import build
+    def mesh(kind):
+        s = cq.Shape.importBrep(f'final_{kind}_{side}.brep')
+        return mill.mesh_of(max(s.Solids(), key=lambda x: x.Volume()), 0.002)
+    B, T = mesh('bottom'), mesh('top')
+    x0, x1 = (B.bounds[0][0], B.bounds[1][0])
+    xs = np.arange(x0, x1, step)
+    def heights(m, y, up):
+        o = np.c_[xs, np.full(len(xs), y), np.full(len(xs), -30.0)]
+        loc, idx, _ = m.ray.intersects_location(o, np.tile([0, 0, 1.0], (len(o), 1)), multiple_hits=True)
+        v = np.full(len(xs), np.nan)
+        for (_, _, z), i in zip(loc, idx):
+            v[i] = z if np.isnan(v[i]) else (max(v[i], z) if up else min(v[i], z))
+        return v
+    h, b = heights(B, y_in, True), heights(B, y_out, True)
+    t, u = heights(T, y_out, False), heights(T, y_lip, False)
+    # the bottom's lip comes down where the top is at least 0.5 mm over the ledge; the top comes
+    # down where it is about 1.1 mm over it, its (also castellated) inner lip 0.3-1.2 mm over it
+    flat = np.abs(np.r_[0, np.diff(h)]) < 1e-6
+    lip = (b >= h - 1e-6) & (b <= h + 0.75) & (t - h >= 0.5) & flat
+    top = (np.abs(t - h - 1.1) < 0.15) & (u >= h + SEAM_FLAT_GAP - 0.1) & (u <= h + 1.2) & lip   # only over a lip that goes
+    def runs_of(ok):
+        out, start = [], None
+        for i, o in enumerate(np.r_[ok, False]):
+            if o and start is None:
+                start = i
+            elif not o and start is not None:
+                if xs[i - 1] - xs[start] >= min_len and np.ptp(h[start:i]) < 1e-6:
+                    out.append((float(xs[start]), float(xs[i - 1]), float(h[start])))
+                start = None
+        return out
+    # the top's runs stop 1.2 mm short of the bottom's: where the top's lowered face ends, the
+    # mill leaves its R1 corner past the end, which must still be over the lowered lip
+    tops = [(a + 1.2, b - 1.2, h_) for a, b, h_ in runs_of(top) if b - a > 2.4 + min_len]
+    return dict(bottom=runs_of(lip), top=tops)
+
+
+def flat_back_seam(L, P, Lb, kind, runs, log=log, name=''):
+    """The back seam made plain over `runs` (back_seam_runs, per part): the bottom's castellated
+    outer lip comes down to the ledge inside it (h), the top's back wall over it comes down to
+    h + SEAM_FLAT_GAP: the seam is one straight line 0.4 mm wide, no 0.2 mm lip."""
+    cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
+    nP, ncols, moved = [], [], 0.0
+    runs = runs[kind]
+    y0 = -48.35 if kind == 'bottom' else -48.6    # the bottom's outer lip; the top over it (its inner lip,
+    # hidden, stays: lowering it too would leave a pocket over the board too narrow for the mill)
+    zones = [(sg.box(x0, y0, x1, -40.0), h) for x0, x1, h in runs]
+    for q, c in zip(P, cols):
+        rest = q
+        for zone, h in zones:
+            if not rest.intersects(zone):
+                continue
+            if kind == 'bottom':
+                change, nc = h + 1e-6 < c[1] <= h + 0.8 and c[0] < h - 1e-6, [c[0], h]
+            else:
+                g = h + SEAM_FLAT_GAP
+                change, nc = g + 1e-6 < c[0] <= h + 1.2 and c[1] > g + 1e-6, [g, c[1]]
+            if not change:
+                continue
+            for piece in mill.pieces(mill.tidy(rest.intersection(zone))):
+                nP.append(piece); ncols.append(nc)
+                moved += piece.area * abs((c[1] - h) if kind == 'bottom' else (c[0] - nc[0]))
+            rest = mill.tidy(rest.difference(zone))
+        for piece in mill.pieces(rest):
+            nP.append(piece); ncols.append(c)
+    log(name, f'back seam made plain over {len(runs)} runs ({sum(r[1] - r[0] for r in runs):.1f} mm): '
+              f'{moved:.2f} mm^3 {"removed" if kind == "bottom" else "added"}')
+    L2 = np.unique(np.r_[L, [z for c in ncols for z in c]])
+    idx = {float(z): k for k, z in enumerate(L2)}
+    return L2, nP, [(idx[float(zb)], idx[float(zt)] - 1) for zb, zt in ncols]
+
+
 def snap_regions(P, Lb, grid=1e-5):
     """Regions on a fine grid (many splits leave nearly coincident vertices)."""
     nP, nLb = [], []
@@ -815,7 +898,40 @@ def checked_faces(P, C, seg, log=log, name=''):
                 modes[ci] = nxt[modes[ci]]
     import pickle
     pickle.dump([P[i] for i in bad], open(f'/tmp/clean_bad_{name.replace(" ", "_")}.pkl', 'wb'))
-    raise RuntimeError(f'{name}: faces still invalid: {bad[:10]}')
+    raise BadFaces(bad)
+
+
+class BadFaces(RuntimeError):
+    """Regions whose face stays invalid however plainly its outline is drawn."""
+    def __init__(self, bad):
+        super().__init__(f'faces still invalid: {bad[:10]}')
+        self.bad = bad
+
+
+def merge_bad(P, Lb, L, bad, log=log, name=''):
+    """Each region in `bad` (BadFaces) joins the neighbour it shares the longest border with, one
+    whose column holds it if there is one (metal is only added)."""
+    P, Lb = list(P), list(Lb)
+    tree = STRtree(P)
+    gone = set()
+    for i in bad:
+        b, t = Lb[i]
+        opts = []
+        for j in tree.query(P[i]):
+            if j == i or j in gone or j in bad:
+                continue
+            l = P[i].boundary.intersection(P[j].boundary).length
+            if l > 1e-6:
+                bj, tj = Lb[j]
+                opts.append((not (L[bj] <= L[b] and L[tj + 1] >= L[t + 1]), -l, j))
+        if not opts:
+            continue
+        j = min(opts)[2]
+        log(name, f'region {P[i].area:.3f} mm^2 at', np.round(P[i].representative_point().coords[0], 2),
+            f'(no valid face) joined to its neighbour ({L[Lb[j][0]]:.3f}..{L[Lb[j][1] + 1]:.3f})')
+        P[j] = P[j].union(P[i]); gone.add(i)
+    keep = [k for k in range(len(P)) if k not in gone]
+    return [P[k] for k in keep], [Lb[k] for k in keep]
 
 
 # ------------------------------------------------------------------ OCC construction
@@ -930,14 +1046,12 @@ def revolve_cutter(profile, cx, cy):
 
 
 def hole_profiles(kind, zb, zt):
-    """(r, z) outline of the void of one screw hole (see TOP_BORE, BOT_CONE)."""
+    """(r, z) outline of the void of one screw hole (see TOP_FACE, BOT_TAP)."""
     if kind == 'top':
-        zc = TOP_CONE - (1.575 - 1.0) / TAN41
         top = zt + 0.3
-        return [(0, zb - 0.3), (1.6, zb - 0.3), (1.6, TOP_BORE), (1.0, TOP_BORE), (1.0, zc),
-                (1.575 + (top - TOP_CONE) * TAN41, top), (0, top)]
-    zc = BOT_CONE + (1.575 - 1.0) / TAN41
-    return [(0, zt + 0.3), (1.0, zt + 0.3), (1.0, zc), (2.15, BOT_CB), (2.15, zb - 0.3), (0, zb - 0.3)]
+        zc = TOP_FACE - (TOP_CS_R - TOP_NECK)          # where the 90° cone meets the neck
+        return [(0, zb - 0.3), (TOP_NECK, zb - 0.3), (TOP_NECK, zc), (TOP_CS_R + (top - TOP_FACE), top), (0, top)]
+    return [(0, zt + 0.3), (BOT_TAP, zt + 0.3), (BOT_TAP, BOT_DRILL), (0, BOT_DRILL)]
 
 
 def checker_spots(solid, drill_r=None, screws=()):
@@ -1021,13 +1135,22 @@ def rebuild(shape, screws, kind, name='', mesh_tol=0.0005, keep=None, side=None)
         L, P, Lb = widen_well_walls(L, P, Lb, side, name=name)
     if side is not None:
         L, P, Lb = open_xiao_end(L, P, Lb, side, kind, name=name)
+        L, P, Lb = flat_back_seam(L, P, Lb, kind, back_seam_runs(side), name=name)
         P, Lb = snap_regions(P, Lb)
     L, P, Lb, fills = mill_repair(L, P, Lb, name=name)
     vol = sum(q.area * (L[t + 1] - L[b]) for q, (b, t) in zip(P, Lb))
     log(name, f'regions volume (holes filled) {vol:.2f}')
     P, Lb = tidy_regions(P, Lb, L, name=name, fills=fills)
     for rnd in range(6):
-        solid = make_solid(L, P, Lb, screws, kind, name=name)
+        for _ in range(3):
+            try:
+                solid = make_solid(L, P, Lb, screws, kind, name=name)
+                break
+            except BadFaces as e:
+                P, Lb = merge_bad(P, Lb, L, e.bad, name=name)
+                P, Lb = tidy_regions(P, Lb, L, name=name)
+        else:
+            solid = make_solid(L, P, Lb, screws, kind, name=name)
         # the checker itself, on the finished part: what a Ø2 mill still can't reach is filled to
         # the height the mill leaves there, and the part made again
         spots = checker_spots(solid, screws=screws)

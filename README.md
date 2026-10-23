@@ -1,7 +1,7 @@
 # TOTEM BLE case in aluminum
 
 All four aluminum parts are clean 2.5D CAD — every face exactly vertical or flat, outlines in
-lines and true arcs, only the 82° screw countersinks conical — and the checks in
+lines and true arcs, only the 90° screw countersinks conical — and the checks in
 `outputs/CHECKS.md` find no spot a Ø2 mm flat end mill can't reach from above or below, no
 undercut, and no aluminum within 0.5 mm of the board, its pads or its metal parts.
 
@@ -11,7 +11,7 @@ at least 0.5 mm from the board, its pads and the metal parts on it, and a wood w
 XIAO BLE lets Bluetooth out. The parts fit 105 × 140 mm stock: 1/2" plate for the tops, 7/8" plate
 for the bottoms. The machining target is a 3-axis mill, two setups, and flat end mills of Ø2 mm or
 larger: inside corners at least R1.05, pockets and slots at least 2.1 mm wide, and no overhangs
-(screw holes are drilled and countersunk).
+(screw holes are drilled and countersunk in the top, drilled and tapped M2 in the bottom).
 
 ![Both halves assembled, with keycaps](docs/images/case_assembled.png)
 
@@ -20,7 +20,7 @@ larger: inside corners at least R1.05, pockets and slots at least 2.1 mm wide, a
 | ![Without keycaps](docs/images/case_no_keycaps.png) | ![Exploded: top, PCB with switches, bottom](docs/images/case_exploded.png) |
 | Without keycaps: the aluminum top and the wood windows over the XIAO | Exploded: top, PCB with switches and parts, bottom |
 | ![Left half with the top see-through](docs/images/case_see_through.png) | ![Underside](docs/images/case_underside.png) |
-| Left half, top made see-through: the PCB, switches, XIAO and wood window inside | From below: the tenting-leg recesses, no holes except the screws |
+| Left half, top made see-through: the PCB, switches, XIAO and wood window inside | From below: the tenting-leg recesses, no holes at all (the screws thread in from above) |
 | ![Side view, slightly exploded](docs/images/case_side.png) | |
 | Side view, slightly exploded: top, PCB, and the bottom with the battery in its pocket | |
 

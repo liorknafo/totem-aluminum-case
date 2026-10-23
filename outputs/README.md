@@ -2,8 +2,9 @@
 
 Machining: all four aluminum parts can be cut on a 3-axis mill in two setups with flat end mills
 of Ø2 mm or bigger — no ball-nose tool. They are clean CAD: every face exactly vertical or flat,
-outlines drawn with lines and true arcs, except the **82°** screw countersinks (an 82° countersink
-bit, as in the original design; a 90° one would not seat the screw heads flush). The checks are
+outlines drawn with lines and true arcs, except the **90°** screw countersinks in the tops (a 90°
+countersink bit, for metric M2 countersunk screws). The M2 threads are tapped in the bottoms. The
+checks are
 in `CHECKS.md`.
 
 Made from copies of the four files in `~/Downloads/TOTEM_cases_STEP` (those originals are untouched;
@@ -26,7 +27,8 @@ the power switch and the reset button. Two deliberate exceptions, neither electr
 - the switch bodies above the board are plastic and still clip into the top plate as before.
 
 The board is held exactly as in the original design: by the switches clipped into the top plate
-and by the four standoffs through the floating (no-net) mounting pads.
+and by the four M2 screws through the floating (no-net) mounting pads, from the top into threads
+tapped in the bottom.
 
 ## What changed (outside: only the seam line, the wood window and the recess mouth noted below)
 
@@ -53,7 +55,7 @@ Bottom:
   up to the −7.3 roof, so every pocket is blind (at least 4.7 mm of floor between it and the recess)
   and each recess keeps its original outline with one flat roof. Where a recess runs out to the
   edge of the part, the filled roof ends 0.1 mm inside the outer face, like the rest of the recess
-  mouths. The only holes through the bottom are the 4 screw holes per half (see
+  mouths. Nothing goes through the bottom: the screw holes are blind tapped holes from above (see
   `underside_holes.png`);
 - where a pocket floor would still be thinner than 0.8 mm, a small pad underneath keeps it 0.8 mm
   thick;
@@ -85,11 +87,8 @@ The implemented machining changes are:
   so the mill makes it exactly: the mill leaves up to ~0.2 mm on the top's arches, and with this the
   vertical gap is 0.20 mm after machining (exact 3D minimum ≈0.2 mm, more than the original
   design's 0.15 mm). The seam line on the back wall is 0.25 mm wider above the board;
-- the screw holes are drilled, not milled: in the top a Ø2.0 neck with an 82° countersink above
-  (Ø4.30 at the top face) and a Ø3.2 bore below for the 6 mm round standoff; in the bottom a Ø2.0
-  neck with an 82° countersink below, down to a Ø4.30 counterbore. The countersinks want an 82°
-  countersink bit: a flat end mill can't finish their narrow end. Unlike the original, both necks
-  are about 1 mm long (see "Screw holes" below).
+- the screw holes are drilled, not milled (see "Screws" below): in the top a 90° countersink
+  (Ø4.30 at the top face) over a Ø2.4 pass-through hole; in the bottom a blind Ø1.6 hole, tapped M2.
 
 - strict 2.5D (no ball-nose mill): every sloped face became vertical walls and flat floors. The
   power-switch and reset bevels are straight openings at their outer size, the arches at the back
@@ -110,8 +109,8 @@ size and everything that works (fit, clearances, screws, switch clips, leg reces
   corners are single arcs a CAM program can follow in one move;
 - the bottoms are no longer the site's triangle mesh: the STEP files are now 11–17 MB (were
   25–82 MB) and every part passes the OpenCASCADE checks with no warnings at all;
-- the screw holes are the exact cylinders and 82° cones of the original CAD (the site's mesh had
-  them faceted, off by up to 0.03 mm);
+- the screw holes are exact cylinders and cones (the site's mesh had them faceted, off by up to
+  0.03 mm);
 - fixed on the way:
   - the right bottom had a **slot through the part** (0.65 mm², at its right edge by the leg
     recess): the 22° ramp's steps had cut through a 0.4 mm floor. Closed, and that floor raised to
@@ -138,18 +137,30 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
 
 ## Screw holes and the wall in front of the XIAO (2026-10-23)
 
-- **Screw holes.** In the original, the Ø3.2 standoff bore in the top reached z 9.0, so the Ø2.0
-  neck under the countersink was only 0.18 mm long; in the bottom the countersink came within
-  0.13 mm of the boss top. Both would tear when drilled. Now the top's bore stops at z 8.0 (the
-  6 mm standoff sits 1 mm lower, z 2.0–8.0, still 0.4 mm clear of the board) and the bottom's
-  countersink and counterbore sit 0.9 mm deeper: both necks are 1.0–1.2 mm long. Same screws
-  (M2 × 6 countersunk) and standoffs: the top screw engages the standoff 3.8 mm, the bottom screw
-  1.4 mm (was 1.3), and the two tips stay 0.8 mm apart inside it.
+- **Screws.** The original (3D printed) holds the case with 6 mm M2 standoffs in the top and an
+  M2 × 6 screw into each end; its screw holes had necks only 0.13–0.18 mm long. In aluminum the
+  threads are tapped in the bottom instead: per hole one **M2 × 16 countersunk screw (ISO 7046 /
+  DIN 965, 90° head)** goes down through the top (90° countersink, Ø4.30 at the face, so the Ø3.8
+  head sits 0.25 mm below it, then a Ø2.4 pass-through hole), the board's Ø3.2 mounting hole, and
+  into a blind M2 thread in the bottom's boss (Ø1.6 tap drill 6 mm deep from the boss top, to
+  z −6.5, which leaves 0.8 mm over the leg recess under two of the screws; tap 5.5 mm): 5.2 mm of
+  thread engaged. No standoffs; the bottom's underside is solid at the
+  screws. The top's bosses get more metal (the Ø3.2 bore is gone).
 - **XIAO end.** The XIAO's USB-C end sits 0.64 mm inside the outer face, so with its 0.5 mm of room
   the wall in front of it was a 0.14 mm skin with the USB-C hole in it. That skin is now open over
   the module's end, from the bottom's pocket floor (z 1.1) to the top's pocket roof (z 6.45): the
   side opening is the module's end, about 19 × 5.4 mm, split by the seam. The USB-C port is easier
   to reach (a plug's overmould can come right up to it).
+- **Back seam.** Along the back wall the two parts met in a tongue and groove whose halves were
+  castellated: the original's arches, cut as 2.5D steps, left the bottom's outer lip (0.2 mm wide)
+  jumping up and down every few tenths of a millimetre under a flat top, a toothed seam line on
+  the back face. Over the straight runs of the back wall (x 32–60, 101–118 and 128–141 on the
+  left, mirrored on the right; the power-switch and reset openings, the back bump and the XIAO's
+  corner left as they are) the seam is now plain: the bottom's lip comes down to its flat ledge
+  and the top's back wall stops one flat 0.4 mm above it, so the seam is a straight line 0.4 mm
+  wide and the 0.2 mm lip is gone (the last 1.2 mm at each end of a run shows 1.1 mm: there the
+  top keeps its old face, as the mill's R1 corner where its lowered face ends must stay over the
+  lowered lip).
 - **Walls beside the keycap wells.** Where a wall between a keycap well and a pocket was thinner
   than 0.8 mm (the worst, 0.45 mm and 3.3 mm tall, between the SWL1 well and the XIAO), the well's
   edge comes in by up to 1 mm beside it, as far as the keycaps allow: they keep 0.3 mm of room at
@@ -164,12 +175,12 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
   ledge (reached from below through the 16 mm recesses, ~4 mm below the top's underside face) and
   the keycap-well corners (6.85 mm deep from the top face).
 - All 2.5D: pockets and contours only, vertical walls and flat floors, flat end mills of Ø2 mm or
-  larger. Only the 82° screw countersinks are conical (82° countersink bit); screw holes are
-  drilled Ø2.0 as in the original — open them to Ø2.2 if your M2 screws bind.
+  larger. Only the 90° screw countersinks in the tops are conical (90° countersink bit). Drill the
+  tops' screw holes Ø2.4 through; drill the bottoms' Ø1.6, 6 mm deep from the boss tops (no
+  deeper: two of them are 0.8 mm over a leg recess), and tap them M2 × 0.4 5.5 mm deep (a
+  bottoming tap for the last turns).
 - Walls still under 0.8 mm (all listed in `CHECKS.md`, "Walls thinner than 0.8 mm"); take light
   finishing passes there:
-  - the bottom's back-wall lip, the outer half of the back seam's tongue and groove: 0.12–0.25 mm
-    wide, 0.5–0.7 mm tall, along about 30 mm of each back wall (x 30–60 left);
   - the corner of each bottom by the XIAO's back corner, where its pocket nearly meets both outer
     faces: 0.07–0.24 mm over about 1 mm²;
   - walls between the bottoms' socket and pad pockets: 0.24–0.78 mm, at most 2 mm tall (both

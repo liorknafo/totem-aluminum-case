@@ -117,13 +117,13 @@ class CleanTests(unittest.TestCase):
         P = 20 * np.c_[np.cos(a), np.sin(a)]
         self.assertTrue(all(p[0] == 'line' for p in fit2d.fit(P, 0.002)))
 
-    def test_hole_radius_follows_the_82_degree_countersinks(self):
-        self.assertAlmostEqual(clean.hole_radius('top', 5.0), 1.6)
-        self.assertAlmostEqual(clean.hole_radius('top', 10.5), 1.575 + (10.5 - 9.8385) * np.tan(np.radians(41)))
-        self.assertAlmostEqual(clean.hole_radius('top', 8.5), 1.0)       # neck: the bore stops at 8.0
-        self.assertAlmostEqual(clean.hole_radius('bottom', -0.6), 1.0)
-        self.assertAlmostEqual(clean.hole_radius('bottom', -1.5), 1.0)   # neck 1 mm long under the boss top
-        self.assertAlmostEqual(clean.hole_radius('bottom', -5.0), 2.15)
+    def test_hole_radius_tapped_bottom_and_90_degree_countersinks(self):
+        self.assertAlmostEqual(clean.hole_radius('top', 10.5), 2.15)      # Ø4.30 at the top face
+        self.assertAlmostEqual(clean.hole_radius('top', 10.0), 1.65)      # 90°: 1:1
+        self.assertAlmostEqual(clean.hole_radius('top', 5.0), 1.2)        # Ø2.4 pass-through
+        self.assertAlmostEqual(clean.hole_radius('bottom', -3.0), 0.8)    # Ø1.6 tap drill
+        self.assertEqual(clean.hole_radius('bottom', -9.0), 0.0)          # blind: solid underneath
+        self.assertAlmostEqual(clean.build_hole_radius('bottom', -5.0), 2.15)
 
     def test_region_prisms_fuse_to_one_clean_solid(self):
         # two columns side by side sharing a wall, one with a round pocket from above
