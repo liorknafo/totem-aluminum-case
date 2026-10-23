@@ -59,7 +59,7 @@ for side in 'LR':
 import re as _re
 lines += ['', '## Clean CAD rebuild', '',
           'All four aluminum parts are rebuilt as clean CAD (`work/clean.py`): every face exactly horizontal or',
-          'vertical, outlines drawn with lines and true arcs, the screw holes as exact cylinders and 82° cones.',
+          'vertical, outlines drawn with lines and true arcs, the screw holes as exact cylinders and 90° cones.',
           'Each part is taken from the build as one column of metal per (x, y) between flat faces; the',
           'hairline slivers and microscopic steps the build\'s mesh booleans left between near-identical walls',
           'are merged into a neighbour (into the side with less metal where there is one), every boundary between',
@@ -105,6 +105,10 @@ for (side, part), t in _ev.items():
     m = _re.search(r'specks on the outline given to the air: ([\d.]+) mm', t)
     if m and float(m.group(1)) > 0:
         items.append(f'hairline specks on the outer faces removed ({m.group(1)} mm² in plan, up to 0.05 mm deep)')
+    m = _re.search(r'inner-lip fins at (\d+) run ends trimmed flush with the lowered block \(([\d.]+) mm', t)
+    if m:
+        items.append(f'the top\'s inner-lip fins at the {m.group(1)} back-seam run ends trimmed flush with the lowered '
+                     f'back wall ({m.group(2)} mm³)')
     m = _re.search(r'mill reach repairs: ([\d.]+) mm', t)
     sp = sum(float(x) for x in _re.findall(r'checker spots filled: ([\d.]+) mm', t))
     if m:
@@ -149,8 +153,9 @@ lines += ['', '## 3-axis machining with a Ø2 mm flat end mill', '',
           'surface a Ø2 mm flat end mill leaves is the grey-level closing of the part\'s height map by a 1 mm',
           'disc; any spot where the part lies deeper than that (material the mill can\'t remove: a slot',
           'narrower than 2 mm, an inside corner sharper than R1, a pocket hidden under an overhang) is',
-          'counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.4 in the top, Ø1.6 tap drill in the bottom) and not counted. Tilted faces outside the countersinks are reported separately;',
-          'they must be horizontal or vertical for a strict 2.5D result. Pictures: `work/mach_*.png`.', '', '```'] + mach + ['```', '',
+          'counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.4 in the top, Ø1.6 tap drill in the bottom) and not counted. Tilted and curved faces outside the countersinks (cut',
+          'with the same flat end mill on 3D toolpaths) are reported as their area; the test above already',
+          'covers them. Pictures: `work/mach_*.png`.', '', '```'] + mach + ['```', '',
           'Measured fit after machining (smallest vertical gap between the top\'s underside',
           'and the bottom\'s top face, each as the Ø2 mm end mill leaves it):', '', '```'] + \
          open(W / 'seam_machined.txt').read().strip().splitlines() + ['```', '',

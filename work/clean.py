@@ -528,17 +528,28 @@ def flat_back_seam(L, P, Lb, kind, runs, log=log, name=''):
     outer lip comes down to the ledge inside it (h), the top's back wall over it comes down to
     h + SEAM_FLAT_GAP: the seam is one straight line 0.4 mm wide, no 0.2 mm lip."""
     cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
-    nP, ncols, moved = [], [], 0.0
+    nP, ncols, moved, trimmed = [], [], 0.0, 0.0
+    ends = []
+    if kind == 'top':
+        # the top's hidden inner lip runs the whole bottom run, the lowered block 1.2 mm less at
+        # each end: the lip's last 1.2 mm would stand alone as a thin fin. Between the two run ends
+        # the lip comes up to the block beside it (h + 1.1), so the run ends square.
+        for (a, b, h), (a2, b2, _) in zip(runs['bottom'], runs['top']):
+            ends += [(sg.box(a - 0.3, -49.4, a2, -48.0), h), (sg.box(b2, -49.4, b + 0.3, -48.0), h)]
+        ends = [(z, h) for z, h in ends if z.area > 0]
     runs = runs[kind]
     y0 = -48.35 if kind == 'bottom' else -48.6    # the bottom's outer lip; the top over it (its inner lip,
     # hidden, stays: lowering it too would leave a pocket over the board too narrow for the mill)
-    zones = [(sg.box(x0, y0, x1, -40.0), h) for x0, x1, h in runs]
+    zones = [(sg.box(x0, y0, x1, -40.0), h, 'run') for x0, x1, h in runs] + [(z, h, 'end') for z, h in ends]
     for q, c in zip(P, cols):
         rest = q
-        for zone, h in zones:
+        for zone, h, what in zones:
             if not rest.intersects(zone):
                 continue
-            if kind == 'bottom':
+            if what == 'end':
+                g = h + SEAM_FLAT_GAP
+                change, nc = g - 1e-6 <= c[0] < h + 1.1 - 1e-6 and c[1] > h + 1.1 + 1e-6, [h + 1.1, c[1]]
+            elif kind == 'bottom':
                 change, nc = h + 1e-6 < c[1] <= h + 0.8 and c[0] < h - 1e-6, [c[0], h]
             else:
                 g = h + SEAM_FLAT_GAP
@@ -547,12 +558,18 @@ def flat_back_seam(L, P, Lb, kind, runs, log=log, name=''):
                 continue
             for piece in mill.pieces(mill.tidy(rest.intersection(zone))):
                 nP.append(piece); ncols.append(nc)
-                moved += piece.area * abs((c[1] - h) if kind == 'bottom' else (c[0] - nc[0]))
+                if what == 'end':
+                    trimmed += piece.area * (nc[0] - c[0])
+                else:
+                    moved += piece.area * abs((c[1] - h) if kind == 'bottom' else (c[0] - nc[0]))
             rest = mill.tidy(rest.difference(zone))
         for piece in mill.pieces(rest):
             nP.append(piece); ncols.append(c)
     log(name, f'back seam made plain over {len(runs)} runs ({sum(r[1] - r[0] for r in runs):.1f} mm): '
               f'{moved:.2f} mm^3 {"removed" if kind == "bottom" else "added"}')
+    if ends:
+        log(name, f'back seam: inner-lip fins at {len(ends)} run ends trimmed flush with the lowered block '
+                  f'({trimmed:.2f} mm^3 removed)')
     L2 = np.unique(np.r_[L, [z for c in ncols for z in c]])
     idx = {float(z): k for k, z in enumerate(L2)}
     return L2, nP, [(idx[float(zb)], idx[float(zt)] - 1) for zb, zt in ncols]

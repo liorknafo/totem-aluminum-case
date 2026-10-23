@@ -149,12 +149,25 @@ def sloped_area(shape, drill=()):
     return float(area)
 
 
-def analyse(path, R=1.0, png=None, label=None, quiet=False, drill=(), json_path=None):
+def mesh_spots(m, R=1.0, drill=(), step=STEP, margin=2.5):
+    """The checker's spots (see analyse) for a closed mesh: [dict(x, y, w, h, area, kind, ztop,
+    cells)], cells the (x, y) points of the spot."""
+    lo_b, hi_b = m.bounds
+    xs = np.arange(lo_b[0] - margin, hi_b[0] + margin, step) + 1.234e-4
+    ys = np.arange(lo_b[1] - margin, hi_b[1] + margin, step) + 2.345e-4
+    zt, zb, L, cnt = projected_columns(m, xs, ys)
+    out, _, sel, _ = find_spots(zt, zb, L, xs, ys, R, drill)
+    X, Y = np.meshgrid(xs, ys)
+    for o, s in zip(out, sel):
+        o['cells'] = np.c_[X[s], Y[s]]
+    return out
+
+
+def find_spots(zt, zb, L, xs, ys, R, drill=()):
+    """Spots a flat end mill of radius R can't cut from above or below (3D toolpaths: grey-level
+    closing of the height field by its disc), and undercut columns. -> (spots, undercut cells,
+    per-spot cell masks)."""
     import scipy.ndimage as nd
-    s = load(path) if isinstance(path, str) else path
-    assert s.isValid() and len(s.Solids()) == 1, "checker requires one valid solid"
-    mesh = surface_mesh(s)
-    zt, zb, L, cnt, xs, ys, bb = columns(s, mesh=mesh)
     top, bot, top_m, bot_m, lo, hi = machined(zt, zb, R)
     full = ~np.isnan(zt)
     # undercut: the column holds less material than zt - zb (a void inside it)
@@ -179,12 +192,13 @@ def analyse(path, R=1.0, png=None, label=None, quiet=False, drill=(), json_path=
     bad = nd.binary_opening(bad, structure=np.ones((2, 2)))
     under = nd.binary_opening(under, structure=np.ones((2, 2)))
     lab, n = nd.label(bad | under)
-    out = []
+    out, sels = [], []
     for i in range(1, n + 1):
         sel = lab == i
         a = sel.sum() * STEP ** 2
         if a < 0.01:
             continue
+        sels.append(sel)
         yy, xx = np.where(sel)
         e = ex[sel]
         kind = []
@@ -199,7 +213,17 @@ def analyse(path, R=1.0, png=None, label=None, quiet=False, drill=(), json_path=
         out.append(dict(x=round(xs[xx].mean(), 2), y=round(ys[yy].mean(), 2), w=round(np.ptp(xs[xx]) + STEP, 2),
                         h=round(np.ptp(ys[yy]) + STEP, 2), area=round(a, 3), kind=', '.join(kind),
                         ztop=round(float(np.nanmax(np.where(sel & full, zt, np.nan))) if (sel & full).any() else 0, 2)))
-    # The requested 2.5D surfaces are horizontal or vertical, apart from the countersinks.
+    return out, under, sels, (full, bad)
+
+
+def analyse(path, R=1.0, png=None, label=None, quiet=False, drill=(), json_path=None):
+    s = load(path) if isinstance(path, str) else path
+    assert s.isValid() and len(s.Solids()) == 1, "checker requires one valid solid"
+    mesh = surface_mesh(s)
+    zt, zb, L, cnt, xs, ys, bb = columns(s, mesh=mesh)
+    out, under, _, (full, bad) = find_spots(zt, zb, L, xs, ys, R, drill)
+    # Sloped and curved faces (3D toolpaths with the flat end mill): reported, not a failure; the
+    # spot test above is what the flat end mill can cut on 3D toolpaths.
     sloped = sloped_area(s, drill)
     if json_path:
         import json
@@ -211,7 +235,7 @@ def analyse(path, R=1.0, png=None, label=None, quiet=False, drill=(), json_path=
             f.write('\n')
     if not quiet:
         print(f'{label or path}: tool Ø{2 * R:g}: {len(out)} spots the mill cannot cut, undercut columns: {int(under.sum())}, '
-              f'sloped faces outside the countersinks: {sloped:.2f} mm²')
+              f'3D surfaces outside the countersinks (3D toolpaths): {sloped:.2f} mm²')
         for o in sorted(out, key=lambda o: -o['area']):
             print(f"  ({o['x']:7.2f},{o['y']:8.2f}) {o['w']:5.2f}x{o['h']:5.2f} area {o['area']:6.3f}  {o['kind']}")
     if png:

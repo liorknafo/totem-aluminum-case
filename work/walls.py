@@ -17,10 +17,18 @@ def thin_walls(m, w=W_MIN, min_area=0.005, min_h=0.02, step=0.02):
     corners (within 0.3 mm of what the opening keeps); width is twice the largest distance from
     the piece to the section's outline (the thickness of the wall there)."""
     L = mill.levels(m)
-    out = []
+    bands = []
     for a, b in zip(L[:-1], L[1:]):
         if b - a < min_h:
             continue
+        # a sloped band (3D surfaces) changes with height: measured every 0.1 mm
+        if mill.same(mill.section(m, a + mill.EPS), mill.section(m, b - mill.EPS)):
+            bands.append((a, b))
+        else:
+            ts = np.linspace(a, b, max(2, int(np.ceil((b - a) / 0.1)) + 1))
+            bands += list(zip(ts[:-1], ts[1:]))
+    out = []
+    for a, b in bands:
         sec = mill.section(m, (a + b) / 2)
         if sec.is_empty:
             continue
