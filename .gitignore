@@ -39,3 +39,4 @@ work/*
 !work/clean.py
 !work/fit2d.py
 !work/diff_mesh.py
+!work/walls.py

@@ -41,7 +41,8 @@ interactive `outputs/TOTEM_3d_view.html`).
     keep-outs as it can make them); `machinable.py PART.step 2` checks a part
   - `clean.py --all` rebuilds the build's four aluminum parts as clean CAD (flat and vertical
     faces only, lines and true arcs, exact drilled holes) and writes them to `outputs/`;
-    `diff_mesh.py OLD NEW` shows where two versions of a part differ
+    `diff_mesh.py OLD NEW` shows where two versions of a part differ; `walls.py PART.step` lists
+    walls thinner than 0.8 mm (in plan; `thin.py` measures floors and roofs)
   - `check_all.sh` re-runs the checks and rewrites `CHECKS.md`
   - `orig/`: the input case files (copies; never modified)
 - `docs/images/`: the renders above

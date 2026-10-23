@@ -25,8 +25,18 @@ SMALL_W = 0.02    # ... or narrower than 2x this
 FIT_TOL = 0.002   # lines and arcs stay this close to the region outlines
 DISC_R = 2.3      # screw holes: inside this radius the column is filled, then drilled exactly
 OPEN_MAX = 5.0    # through-openings smaller than this (mm^2) are accidents and get closed
-SKIN = 0.6        # thinnest floor between a pocket and the underside (bottoms)
+SKIN = 0.8        # thinnest floor between a pocket and the underside
 TAN41 = np.tan(np.radians(41.0))   # 82° countersinks (cone semi-angle 41°, as in the originals)
+# Screw holes. Top: Ø3.2 bore for the 6 mm round standoff from below up to TOP_BORE (the
+# original's 9.0 left a 0.18 mm neck under the countersink; the standoff now sits 1 mm lower,
+# 2.0..8.0), Ø2.0 neck, 82° countersink (r 1.575 at TOP_CONE) to Ø4.30 at the top face.
+# Bottom: Ø4.30 counterbore up from the underside, 82° countersink (r 1.575 at BOT_CONE; the
+# original's -1.3385 left a 0.13 mm neck under the boss top, the screw now sits 0.9 mm deeper),
+# Ø2.0 neck through the boss top.
+TOP_BORE, TOP_CONE = 8.0, 9.8385
+BOT_CONE = -1.3385 - 0.9
+BOT_CB = BOT_CONE - (2.15 - 1.575) / TAN41   # where the countersink meets the counterbore
+BUILD_HOLES = dict(bore=9.0, cone=-1.3385)   # the holes as the build (and the originals) has them
 
 T0 = time.monotonic()
 
@@ -46,26 +56,27 @@ def band_sections(m):
     return L, S
 
 
-def hole_radius(kind, z):
+def hole_radius(kind, z, bore=TOP_BORE, cone=BOT_CONE):
     """Radius of the screw hole's void at height z (see hole_profiles)."""
     if kind == 'top':
-        if z < 9.0:
+        if z < bore:
             return 1.6
-        return max(1.0, 1.575 + (z - 9.8385) * TAN41)
-    if z < -2.0:
+        return max(1.0, 1.575 + (z - TOP_CONE) * TAN41)
+    if z < cone - (2.15 - 1.575) / TAN41:
         return 2.15
-    return max(1.0, 1.575 + (-1.3385 - z) * TAN41)
+    return max(1.0, 1.575 + (cone - z) * TAN41)
 
 
 def plug_screws(S, L, screws, kind):
     """Fill each screw hole in every band where metal (mostly) surrounds it, a hair over the hole's
-    largest radius in the band: the hole and its countersink are cut again exactly at the end,
+    largest radius in the band (as built or as it is cut now, whichever is larger): the hole and
+    its countersink are cut again exactly at the end,
     through the whole part, so what was there is restored. Metal under 0.2 mm thick right at the
     hole (a pocket that nearly touches it, a ring a few hundredths wide) goes: removal only."""
     out, discs = [], []
     for k, g in enumerate(S):
         a, b = L[k], L[k + 1]
-        r = max(hole_radius(kind, z) for z in np.linspace(a, b, 9))
+        r = max(max(hole_radius(kind, z), hole_radius(kind, z, **BUILD_HOLES)) for z in np.linspace(a, b, 9))
         for x, y in screws:
             d = sg.Point(x, y).buffer(r, quad_segs=64)
             ring = d.buffer(0.1, quad_segs=64).difference(d)
@@ -402,6 +413,110 @@ def raise_floors(L, P, Lb, keep, foot=None, skin=SKIN, ledge=LEDGE, grow=LEDGE_G
     if not spots:
         return L, P, Lb
     return fill_spots(L, P, Lb, spots, name=name, what='ledge')
+
+
+WELL_WALL = 0.8   # walls beside a keycap well thinner than this get the well's edge moved in
+CAP_GAP = 0.3     # ... as far as the keycaps (pressed or not) and switch housings allow, keeping this
+
+
+def thin_pieces(sec, w, min_area=2e-3):
+    """Bits of the section narrower than w (the opening by a w/2 disc, less what it rounds off
+    plain corners: see walls.py)."""
+    opened = sec.buffer(-w / 2, quad_segs=16).buffer(w / 2 + 1e-4, quad_segs=16)
+    thin = sec.difference(opened).difference(opened.buffer(0.3 * w))
+    return [g for g in mill.pieces(thin) if g.area > min_area]
+
+
+def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log, name=''):
+    """Tops: a wall thinner than `w` between a keycap well and something else (the XIAO pocket,
+    a part's pocket) is thickened into the well: the well's floor beside it comes up to the top
+    face, within `grow` of the wall, `gap` clear of the keycaps (at rest and pressed down their
+    3 mm travel) and the switch housings. The keycaps' room is all that limits a well's edge."""
+    import build
+    from common import placed
+    caps = [sg.MultiPoint(t.vertices[:, :2]).convex_hull for t in placed({'keycap'}, side)]
+    hous = []
+    for nm, shp in build.kicad_parts():
+        bb = shp.BoundingBox()
+        if bb.zmax <= 8 or (side == 'L') != ((bb.xmin + bb.xmax) / 2 < 150):
+            continue
+        for s in shp.Solids():
+            if s.BoundingBox().zmin >= 0:   # above the board: the housing and stem
+                vs = [v.toTuple()[:2] for v in build.place(s, side).Vertices()]
+                hous.append(sg.MultiPoint(vs).convex_hull)
+    room = unary_union(caps + hous).buffer(gap)
+    cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
+    zmax = max(c[1] for c in cols)
+    wells = unary_union([q for q, c in zip(P, cols) if 3.6 < c[1] < 4.3])   # the wells' floors
+    spots = []
+    for a, b in zip(L[:-1], L[1:]):
+        if b - a < 0.02 or a < 3.6 - 1e-6:
+            continue   # beside the wells: above their floors
+        sec = unary_union([q for q, c in zip(P, cols) if c[0] <= a + 1e-9 and c[1] >= b - 1e-9])
+        for t in thin_pieces(sec, w):
+            g = t.buffer(grow, quad_segs=8).intersection(wells).difference(room)
+            g = g.buffer(-0.1, quad_segs=8).buffer(0.1, quad_segs=8).intersection(wells)
+            for piece in mill.pieces(g):
+                if piece.area > 1e-3 and piece.buffer(0.02).intersects(t):
+                    spots.append((piece, 'top', zmax))
+    if not spots:
+        log(name, 'no thin walls beside the keycap wells')
+        return L, P, Lb
+    # and whatever of the well beside them a Ø2 mill can't reach any more (a corner sharper
+    # than R1 between a fill and the wall next to it): filled too, no nearer the keycaps than
+    # the walls round it
+    walls = unary_union([q for q, c in zip(P, cols) if c[1] >= zmax - 1e-6])
+    filled = unary_union([g for g, _, _ in spots])
+    near = filled.buffer(4.0)   # far enough that cutting the void off here makes no false corners
+    void = near.difference(walls.union(filled))
+    reach = void.buffer(-1.05, quad_segs=16).buffer(1.05 + 1e-4, quad_segs=16)   # the checker's R1, with its grid
+    left = void.difference(reach).intersection(wells).intersection(filled.buffer(1.2))
+    spots += [(g, 'top', zmax) for g in mill.pieces(left) if g.area > 1e-5]
+    return fill_spots(L, P, Lb, spots, name=name, what='keycap-well wall')
+
+
+def snap_regions(P, Lb, grid=1e-5):
+    """Regions on a fine grid (many splits leave nearly coincident vertices)."""
+    nP, nLb = [], []
+    for q, lb in zip(P, Lb):
+        for g in mill.pieces(shapely.make_valid(shapely.set_precision(q, grid))):
+            if g.area > 1e-8:
+                nP.append(g); nLb.append(lb)
+    return nP, nLb
+
+
+def open_xiao_end(L, P, Lb, side, kind, strip=0.6, log=log, name=''):
+    """The XIAO's USB end sits 0.64 mm inside the outer face; with its 0.5 mm of room the wall in
+    front of it is 0.14 mm. That wall is opened, over the module's end, between the floor (bottom)
+    and roof (top) of its pocket: the side opening round the USB-C port becomes the module's end."""
+    foot, z0, z1 = xiao_box(side)
+    cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
+    # only at the outer face: the part's outline without its openings (switch cut-outs, window)
+    outer = unary_union([sg.Polygon(g.exterior) for g in mill.pieces(unary_union(P))])
+    zone = foot.buffer(strip).intersection(outer.difference(outer.buffer(-strip))).difference(foot)
+    # the pocket's floor (bottom) or roof (top): the level under (over) most of the module
+    area = {}
+    for q, c in zip(P, cols):
+        z = c[1] if kind == 'bottom' else c[0]
+        if (kind == 'bottom' and z0 - 0.6 < z < z0 + 0.1) or (kind == 'top' and z1 - 0.1 < z < z1 + 0.6):
+            area[z] = area.get(z, 0.0) + q.intersection(foot).area
+    h = max(area, key=area.get)
+    nP, ncols, gone = [], [], 0.0
+    for q, c in zip(P, cols):
+        cut = q.intersection(zone) if q.intersects(zone) else sg.Polygon()
+        change = (kind == 'bottom' and c[1] > h + 1e-6 and c[0] < h - 1e-6) or \
+                 (kind == 'top' and c[0] < h - 1e-6 and c[1] > h + 1e-6)
+        if cut.area < 1e-4 or not change:
+            nP.append(q); ncols.append(c); continue
+        for g in mill.pieces(mill.tidy(cut)):
+            nP.append(g); ncols.append([c[0], h] if kind == 'bottom' else [h, c[1]])
+            gone += g.area * ((c[1] - h) if kind == 'bottom' else (h - c[0]))
+        for g in mill.pieces(mill.tidy(q.difference(zone))):
+            nP.append(g); ncols.append(c)
+    log(name, f'XIAO end opened down/up to {h:.3f}: {gone:.2f} mm^3 removed')
+    L2 = np.unique(np.r_[L, [z for c in ncols for z in c]])
+    idx = {float(z): k for k, z in enumerate(L2)}
+    return L2, nP, [(idx[float(zb)], idx[float(zt)] - 1) for zb, zt in ncols]
 
 
 R_REPAIR = 0.97   # a Ø2 mm end mill must reach every void (machinable.py: R1 less its 0.03 tolerance)
@@ -815,19 +930,14 @@ def revolve_cutter(profile, cx, cy):
 
 
 def hole_profiles(kind, zb, zt):
-    """(r, z) outline of the void of one screw hole (as measured from the originals)."""
+    """(r, z) outline of the void of one screw hole (see TOP_BORE, BOT_CONE)."""
     if kind == 'top':
-        # Ø3.2 bore from the boss underside to 9.0, Ø2.0 neck to the countersink, 82° countersink
-        # to Ø4.30 at the top face (cone r = 1.575 at z = 9.8385)
-        zc = 9.8385 - (1.575 - 1.0) / TAN41
+        zc = TOP_CONE - (1.575 - 1.0) / TAN41
         top = zt + 0.3
-        return [(0, zb - 0.3), (1.6, zb - 0.3), (1.6, 9.0), (1.0, 9.0), (1.0, zc),
-                (1.575 + (top - 9.8385) * TAN41, top), (0, top)]
-    # bottom: Ø2.0 neck through the boss top, 82° countersink from below down to the Ø4.30
-    # counterbore at -2.0, counterbore down to the boss underside (cone r = 1.575 at z = -1.3385)
-    zc = -1.3385 + (1.575 - 1.0) / TAN41
-    return [(0, zt + 0.3), (1.0, zt + 0.3), (1.0, zc), (2.15, -1.3385 - (2.15 - 1.575) / TAN41),
-            (2.15, zb - 0.3), (0, zb - 0.3)]
+        return [(0, zb - 0.3), (1.6, zb - 0.3), (1.6, TOP_BORE), (1.0, TOP_BORE), (1.0, zc),
+                (1.575 + (top - TOP_CONE) * TAN41, top), (0, top)]
+    zc = BOT_CONE + (1.575 - 1.0) / TAN41
+    return [(0, zt + 0.3), (1.0, zt + 0.3), (1.0, zc), (2.15, BOT_CB), (2.15, zb - 0.3), (0, zb - 0.3)]
 
 
 def checker_spots(solid, drill_r=None, screws=()):
@@ -841,11 +951,13 @@ def checker_spots(solid, drill_r=None, screws=()):
     ex_bot = np.where(full & (bot_m < bot - 1e-6), bot - bot_m, 0)
     X, Y = np.meshgrid(xs, ys)
     out = []
+    away = np.ones(X.shape, bool)
+    for x, y in screws:
+        away &= (X - x) ** 2 + (Y - y) ** 2 > 2.4 ** 2
+    # as machinable.py: grid noise is dropped from both sides together, then split by side
+    both = nd.binary_opening(away & ((ex_top > DEPTH_TOL) | (ex_bot > DEPTH_TOL)), structure=np.ones((2, 2)))
     for side, ex, m in (('top', ex_top, top_m), ('bottom', ex_bot, bot_m)):
-        bad = ex > DEPTH_TOL
-        for x, y in screws:
-            bad &= (X - x) ** 2 + (Y - y) ** 2 > 2.4 ** 2
-        bad = nd.binary_opening(bad, structure=np.ones((2, 2)))
+        bad = both & (ex > DEPTH_TOL)
         lab, n = nd.label(bad)
         for i in range(1, n + 1):
             sel = lab == i
@@ -868,12 +980,12 @@ def fill_spots(L, P, Lb, spots, log=log, name='', what='checker spot'):
             need = (c[1] < h - 1e-6 and c[0] < h) if side == 'top' else (c[0] > h + 1e-6 and c[1] > h)
             if not need:
                 continue
-            inter = rest.intersection(poly)
+            inter = mill.tidy(rest.intersection(poly))
             for g in mill.pieces(inter):
                 nc = [c[0], h] if side == 'top' else [h, c[1]]
                 nP.append(g); ncols.append(nc)
                 added += g.area * abs(h - (c[1] if side == 'top' else c[0]))
-            rest = rest.difference(poly)
+            rest = mill.tidy(rest.difference(poly))
         for g in mill.pieces(rest):
             nP.append(g); ncols.append(c)
     for poly, side, h in spots:
@@ -906,11 +1018,15 @@ def rebuild(shape, screws, kind, name='', mesh_tol=0.0005, keep=None, side=None)
         foot, z0, z1 = xiao_box(side)
         L, P, Lb = widen_pocket(L, P, Lb, foot, z0, z1, name=name)
         L, P, Lb = raise_floors(L, P, Lb, keep or [], foot=foot, name=name)
+        L, P, Lb = widen_well_walls(L, P, Lb, side, name=name)
+    if side is not None:
+        L, P, Lb = open_xiao_end(L, P, Lb, side, kind, name=name)
+        P, Lb = snap_regions(P, Lb)
     L, P, Lb, fills = mill_repair(L, P, Lb, name=name)
     vol = sum(q.area * (L[t + 1] - L[b]) for q, (b, t) in zip(P, Lb))
     log(name, f'regions volume (holes filled) {vol:.2f}')
     P, Lb = tidy_regions(P, Lb, L, name=name, fills=fills)
-    for rnd in range(3):
+    for rnd in range(6):
         solid = make_solid(L, P, Lb, screws, kind, name=name)
         # the checker itself, on the finished part: what a Ø2 mill still can't reach is filled to
         # the height the mill leaves there, and the part made again
@@ -920,7 +1036,7 @@ def rebuild(shape, screws, kind, name='', mesh_tol=0.0005, keep=None, side=None)
         L, P, Lb = fill_spots(L, P, Lb, spots, name=name)
         P, Lb = tidy_regions(P, Lb, L, name=name, fills=unary_union([sp[0] for sp in spots]))
     else:
-        log(name, 'checker spots left after 3 rounds:', len(spots))
+        log(name, 'checker spots left after 6 rounds:', len(spots))
     log(name, 'final: valid', solid.isValid(), 'faces', len(solid.Faces()), 'volume', round(solid.Volume(), 2),
         '(was', round(shape.Volume(), 2), ')')
     return solid, dict(levels=L, regions=P, labels=Lb)

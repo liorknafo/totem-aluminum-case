@@ -55,7 +55,7 @@ Bottom:
   edge of the part, the filled roof ends 0.1 mm inside the outer face, like the rest of the recess
   mouths. The only holes through the bottom are the 4 screw holes per half (see
   `underside_holes.png`);
-- where a pocket floor would still be thinner than 0.6 mm, a small pad underneath keeps it 0.6 mm
+- where a pocket floor would still be thinner than 0.8 mm, a small pad underneath keeps it 0.8 mm
   thick;
 - the TRRS jack is not fitted in the BLE build (the original bottom has a post where it would sit),
   so it gets no pocket.
@@ -85,10 +85,11 @@ The implemented machining changes are:
   so the mill makes it exactly: the mill leaves up to ~0.2 mm on the top's arches, and with this the
   vertical gap is 0.20 mm after machining (exact 3D minimum ≈0.2 mm, more than the original
   design's 0.15 mm). The seam line on the back wall is 0.25 mm wider above the board;
-- the screw holes are drilled, not milled, with the original design's sizes: in the top a Ø2.0
-  neck with an 82° countersink above (Ø4.30 at the top face) and a Ø3.2 bore below; in the bottom a
-  Ø2.0 neck with an 82° countersink below, down to a Ø4.30 counterbore. The countersinks want an
-  82° countersink bit: a flat end mill can't finish their narrow end.
+- the screw holes are drilled, not milled: in the top a Ø2.0 neck with an 82° countersink above
+  (Ø4.30 at the top face) and a Ø3.2 bore below for the 6 mm round standoff; in the bottom a Ø2.0
+  neck with an 82° countersink below, down to a Ø4.30 counterbore. The countersinks want an 82°
+  countersink bit: a flat end mill can't finish their narrow end. Unlike the original, both necks
+  are about 1 mm long (see "Screw holes" below).
 
 - strict 2.5D (no ball-nose mill): every sloped face became vertical walls and flat floors. The
   power-switch and reset bevels are straight openings at their outer size, the arches at the back
@@ -115,8 +116,8 @@ size and everything that works (fit, clearances, screws, switch clips, leg reces
   - the right bottom had a **slot through the part** (0.65 mm², at its right edge by the leg
     recess): the 22° ramp's steps had cut through a 0.4 mm floor. Closed, and that floor raised to
     its neighbours' top (1.1 mm thick now; the socket keep-out above allows it);
-  - floors thinner than 0.6 mm made 0.6 mm (one small spot per bottom at the front rim: a 0.05 mm
-    pad underneath);
+  - floors thinner than 0.8 mm made 0.8 mm (two small spots per bottom at the front rim: a pad
+    up to 0.25 mm deep underneath);
   - hairline cracks inside the bottoms (horizontal gaps thinner than 0.05 mm, the largest 0.24 mm²)
     filled;
   - the XIAO had 0.4999 mm in the tops; its pocket is now 0.52 mm all round (0.02 mm off the
@@ -135,6 +136,25 @@ size and everything that works (fit, clearances, screws, switch clips, leg reces
 Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the outer faces (at most
 0.05 mm deep) and the exact screw holes; `CHECKS.md` lists every spot that differs from the build.
 
+## Screw holes and the wall in front of the XIAO (2026-10-23)
+
+- **Screw holes.** In the original, the Ø3.2 standoff bore in the top reached z 9.0, so the Ø2.0
+  neck under the countersink was only 0.18 mm long; in the bottom the countersink came within
+  0.13 mm of the boss top. Both would tear when drilled. Now the top's bore stops at z 8.0 (the
+  6 mm standoff sits 1 mm lower, z 2.0–8.0, still 0.4 mm clear of the board) and the bottom's
+  countersink and counterbore sit 0.9 mm deeper: both necks are 1.0–1.2 mm long. Same screws
+  (M2 × 6 countersunk) and standoffs: the top screw engages the standoff 3.8 mm, the bottom screw
+  1.4 mm (was 1.3), and the two tips stay 0.8 mm apart inside it.
+- **XIAO end.** The XIAO's USB-C end sits 0.64 mm inside the outer face, so with its 0.5 mm of room
+  the wall in front of it was a 0.14 mm skin with the USB-C hole in it. That skin is now open over
+  the module's end, from the bottom's pocket floor (z 1.1) to the top's pocket roof (z 6.45): the
+  side opening is the module's end, about 19 × 5.4 mm, split by the seam. The USB-C port is easier
+  to reach (a plug's overmould can come right up to it).
+- **Walls beside the keycap wells.** Where a wall between a keycap well and a pocket was thinner
+  than 0.8 mm (the worst, 0.45 mm and 3.3 mm tall, between the SWL1 well and the XIAO), the well's
+  edge comes in by up to 1 mm beside it, as far as the keycaps allow: they keep 0.3 mm of room at
+  rest and fully pressed, and so do the switch housings. Five spots per top, ≈140–155 mm³.
+
 ## Machining notes
 
 - Fits the stock: parts are 133.1 × 99.0 in 140 × 105 (≈3.5 / 3 mm per side). Top 12.0 in 12.7;
@@ -146,8 +166,19 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
 - All 2.5D: pockets and contours only, vertical walls and flat floors, flat end mills of Ø2 mm or
   larger. Only the 82° screw countersinks are conical (82° countersink bit); screw holes are
   drilled Ø2.0 as in the original — open them to Ø2.2 if your M2 screws bind.
-- Behind the reset button's round hole the wall is 0.59 mm thick over a small area (in front of
-  the switch-body pocket): take a light finishing pass there.
+- Walls still under 0.8 mm (all listed in `CHECKS.md`, "Walls thinner than 0.8 mm"); take light
+  finishing passes there:
+  - the bottom's back-wall lip, the outer half of the back seam's tongue and groove: 0.12–0.25 mm
+    wide, 0.5–0.7 mm tall, along about 30 mm of each back wall (x 30–60 left);
+  - the corner of each bottom by the XIAO's back corner, where its pocket nearly meets both outer
+    faces: 0.07–0.24 mm over about 1 mm²;
+  - walls between the bottoms' socket and pad pockets: 0.24–0.78 mm, at most 2 mm tall (both
+    sides are keep-outs);
+  - in the tops: the walls in front of the reset button and power switch (0.4–0.6 mm, as in the
+    original), the back seam's lips (0.3–0.6 mm), small steps at the diode pockets (0.3 mm tall)
+    and the screw bosses' rings at the board (0.6–0.7 mm), all under 3.6 mm tall;
+  - specks under 0.1 mm² in plan where two pocket outlines nearly meet.
+  Floors and roofs are all at least 0.8 mm (1.0 mm in the tops).
 - The panel tabs on the PCB edge (mouse-bites) must be sanded flush — clearances were measured
   from the true board outline.
 - Wood insert: fit it from inside the top before assembly (flange under the roof); check the

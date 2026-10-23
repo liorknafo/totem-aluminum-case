@@ -92,6 +92,13 @@ for (side, part), t in _ev.items():
     for m in _re.finditer(r'ledge at \[\s*([-\d.]+)\s+([-\d.]+)\s*\] ([\d.]+) mm\^2 raised ([-\d.]+) -> ([-\d.]+)', t):
         items.append(f'keycap-well floor at ({m.group(1)}, {m.group(2)}) over a diode-pocket end raised {m.group(4)} → '
                      f'{m.group(5)} ({m.group(3)} mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more)')
+    m = _re.search(r'keycap-well walls filled: ([\d.]+) mm', t)
+    if m:
+        items.append(f'walls under 0.8 mm beside the keycap wells thickened into the wells, 0.3 mm clear of the '
+                     f'keycaps and switch housings ({m.group(1)} mm³)')
+    m = _re.search(r'XIAO end opened down/up to ([-\d.]+): ([\d.]+) mm', t)
+    if m:
+        items.append(f'the 0.14 mm wall in front of the XIAO\'s USB end opened ({m.group(2)} mm³)')
     m = _re.search(r'pocket widened: ([\d.]+) mm', t)
     if m:
         items.append(f'XIAO pocket widened to 0.52 mm all round ({m.group(1)} mm³)')
@@ -122,6 +129,16 @@ for side in 'LR':
         r = thinner(side, part, orig)
         lines.append(f'- {side} {part}: ' + ('no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)' if not r else
                      '; '.join(f'({x:.1f},{y:.1f}) {t:.2f} mm' + (f' (was {o:.2f})' if o else ' (new)') for x, y, t, o in r)))
+lines += ['', '## Walls thinner than 0.8 mm', '',
+          'Every band between the parts\' flat faces, cut in plan: metal narrower than 0.8 mm (what an',
+          'opening by a 0.4 mm disc removes, less the bits it rounds off plain corners; width = twice the',
+          'largest distance to the outline). Thin layers in z (floors, roofs) are listed below from',
+          '`thin.py` (0.25 mm grid, all spots under 0.8 mm, screw-hole rings included):', '', '```'] + \
+         open(W / 'walls.txt').read().strip().splitlines() + ['```', '', '```']
+for side in 'LR':
+    for part in ('top', 'bottom'):
+        lines += open(W / f'thin_{part}_{side}.txt').read().strip().splitlines()
+lines += ['```']
 fit = json.load(open(W / 'fit_check.json'))
 mach = open(W / 'machinable.txt').read().strip().splitlines()
 lines += ['', '## 3-axis machining with a Ø2 mm flat end mill', '',

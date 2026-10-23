@@ -120,7 +120,9 @@ class CleanTests(unittest.TestCase):
     def test_hole_radius_follows_the_82_degree_countersinks(self):
         self.assertAlmostEqual(clean.hole_radius('top', 5.0), 1.6)
         self.assertAlmostEqual(clean.hole_radius('top', 10.5), 1.575 + (10.5 - 9.8385) * np.tan(np.radians(41)))
+        self.assertAlmostEqual(clean.hole_radius('top', 8.5), 1.0)       # neck: the bore stops at 8.0
         self.assertAlmostEqual(clean.hole_radius('bottom', -0.6), 1.0)
+        self.assertAlmostEqual(clean.hole_radius('bottom', -1.5), 1.0)   # neck 1 mm long under the boss top
         self.assertAlmostEqual(clean.hole_radius('bottom', -5.0), 2.15)
 
     def test_region_prisms_fuse_to_one_clean_solid(self):

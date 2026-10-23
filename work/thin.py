@@ -25,8 +25,8 @@ for i, h in enumerate(hits):
     if len(h) >= 2 and len(h) % 2 == 0:
         T[i] = min(h[k + 1] - h[k] for k in range(0, len(h), 2))
 T = T.reshape(X.shape)
-thin = (T < 0.6)
-print(part, side, 'grid points with a layer < 0.6 mm:', int(np.nansum(thin)), 'min layer', np.nanmin(T).round(3))
+thin = (T < 0.8)
+print(part, side, 'grid points with a layer < 0.8 mm:', int(np.nansum(thin)), 'min layer', np.nanmin(T).round(3))
 ys_, xs_ = np.where(thin)
 pts = np.c_[xs[xs_], ys[ys_], T[ys_, xs_]]
 # cluster the thin spots for a readable list
@@ -38,6 +38,6 @@ if len(pts) > 1:
         print(f'  thin spot around ({q[:,0].mean():.1f},{q[:,1].mean():.1f}) span {np.ptp(q[:,0]):.1f}x{np.ptp(q[:,1]):.1f} min {q[:,2].min():.2f} mm  n={len(q)}')
 fig, ax = plt.subplots(figsize=(16, 12))
 im = ax.imshow(T, origin='lower', extent=[xs[0], xs[-1], ys[0], ys[-1]], cmap='RdYlGn', vmin=0, vmax=1.5)
-ax.set_title(f'{part} {side}: thinnest material layer (red < 0.6 mm)'); ax.set_aspect('equal')
+ax.set_title(f'{part} {side}: thinnest material layer (red < 0.8 mm)'); ax.set_aspect('equal')
 plt.colorbar(im, ax=ax, fraction=0.03)
 plt.tight_layout(); plt.savefig(f'thin_{part}_{side}.png', dpi=50)
