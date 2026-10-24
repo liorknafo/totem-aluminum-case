@@ -863,14 +863,40 @@ def chains(P):
     return out, seg
 
 
+def dp_keep(pts, eps):
+    """Indices of the points Douglas-Peucker keeps at eps (the ends always)."""
+    keep = np.zeros(len(pts), bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, b = pts[i], pts[j]
+        d = b - a
+        L = np.hypot(*d)
+        q = pts[i + 1:j] - a
+        dist = np.abs(d[0] * q[:, 1] - d[1] * q[:, 0]) / L if L > 1e-12 else np.hypot(q[:, 0], q[:, 1])
+        k = int(np.argmax(dist))
+        if dist[k] > eps:
+            keep[i + 1 + k] = True
+            stack += [(i, i + 1 + k), (i + 1 + k, j)]
+    return list(np.where(keep)[0])
+
+
 def fit_chains(C, tol=FIT_TOL, modes=None):
     """modes per chain: 'fit' (lines and arcs), 'tight' (lines and arcs, closer to the vertices),
-    'lines' (straight runs merged), 'raw' (every vertex kept)."""
+    'lines' (straight runs merged), 'raw' (the vertices, less those within 0.002 mm of the line
+    through their neighbours: no hair-fine zigzag folding the outline back on itself, which a
+    mesher can't stitch), 'exact' (every vertex kept)."""
     F = []
     for ci, pts in enumerate(C):
         mode = modes[ci] if modes else 'fit'
-        if mode == 'raw':
+        if mode == 'exact':
             pr = [('line', i, i + 1) for i in range(len(pts) - 1)]
+        elif mode == 'raw':
+            keep = dp_keep(np.asarray(pts, float), 0.002)
+            pr = [('line', i, j) for i, j in zip(keep[:-1], keep[1:])]
         else:
             pr = fit2d.fit(pts, tol / 5 if mode == 'tight' else tol, rmax=0.0 if mode == 'lines' else 500.0)
         # a chain closed on itself as a single arc can't be drawn with one 3-point arc: split it
@@ -901,7 +927,7 @@ def checked_faces(P, C, seg, log=log, name=''):
     from OCP.BRepCheck import BRepCheck_Analyzer
     modes = ['fit'] * len(C)
     users = [ring_chains(q, seg) for q in P]
-    for rnd in range(6):
+    for rnd in range(7):
         F = fit_chains(C, modes=modes)
         faces, bad = [], []
         for qi, q in enumerate(P):
@@ -913,7 +939,7 @@ def checked_faces(P, C, seg, log=log, name=''):
         log(name, f'faces: {len(bad)} invalid in round {rnd}')
         if not bad:
             return faces, F
-        nxt = {'fit': 'tight', 'tight': 'lines', 'lines': 'raw', 'raw': 'raw'}
+        nxt = {'fit': 'tight', 'tight': 'lines', 'lines': 'raw', 'raw': 'exact', 'exact': 'exact'}
         def face_ok(qi, F2):
             f = region_face(P[qi], C, F2, seg, 0.0)
             return BRepCheck_Analyzer(f).IsValid() and abs(cq.Face(f).Area() - P[qi].area) < 0.01 + 0.005 * P[qi].area
@@ -922,7 +948,7 @@ def checked_faces(P, C, seg, log=log, name=''):
             # their arcs); failing that, all of them
             one = None
             for ci in sorted(users[qi], key=lambda ci: len(C[ci])):
-                if modes[ci] == 'raw':
+                if modes[ci] == 'exact':
                     continue
                 F2 = list(F)
                 F2[ci] = fit_chains([C[ci]], modes=[nxt[modes[ci]]])[0]

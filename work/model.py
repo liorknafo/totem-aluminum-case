@@ -260,6 +260,11 @@ def top(side, bottom_part=None):
     over the bottom's designed, the build's keep-outs as the mill cuts them from below, the XIAO
     pocket and its opened end, countersunk screw holes."""
     ref = REF[side]['top']
+    if '--from-regions' in sys.argv:   # (rerun from the column regions)
+        import pickle
+        return top_from_regions(side, *pickle.loads((W / f'regions_top_{side}.pkl').read_bytes()))
+    if '--from-columns' in sys.argv:   # (rerun the steps after the column model alone)
+        return top_after_columns(side, cq.Shape.importBrep(str(W / f'columns_top_{side}.brep')))
     # the walls over the bottom's back and left walls are designed (below): kept out of the air
     walls = [mirror_x(sg.box(x0, BACK_WALL_Y[0], x1, BACK_WALL_Y[1] + 1.0), side) for x0, x1, _ in BACK_TOPS_L]
     walls += [mirror_x(sg.box(LEFT_WALL_X[0] - 1.0, y0, LEFT_WALL_X[1], y1), side) for y0, y1, _ in LEFT_TOPS]
@@ -349,6 +354,14 @@ def top(side, bottom_part=None):
     log(side, f'top: {len(bands)} bands of the original -> {len(P)} regions of constant bottom and top')
     L = np.array(L)
     P, Lb = clean.tidy_regions(P, Lb, L, log=log, name=f'{side} top')
+    return top_from_regions(side, L, P, Lb, screws)
+
+
+def top_from_regions(side, L, P, Lb, screws):
+    """The top from its column regions (cached in regions_top_SIDE.pkl: model.py top SIDE
+    --from-regions starts here): ledges, the mill's fills, the solid, then top_after_columns."""
+    import pickle
+    (W / f'regions_top_{side}.pkl').write_bytes(pickle.dumps((L, P, Lb, screws)))
     # the floors the keep-outs would leave too thin (as clean.py does them: ledges where the diode
     # pockets' rounded ends come within 1 mm of a keycap-well floor): found on the columns with the
     # keep-out pockets and the XIAO pocket cut from below, filled here, before they are cut. (Not
@@ -372,11 +385,17 @@ def top(side, bottom_part=None):
         L, P, Lb = clean.fill_spots(L, P, Lb, spots, log=log, name=f'{side} top')
         P, Lb = clean.tidy_regions(P, Lb, L, log=log, name=f'{side} top', fills=unary_union([sp[0] for sp in spots]))
     part = stage(part, 'original air and designed pockets, from below and above (column model)', side)
+    part.exportBrep(str(W / f'columns_top_{side}.brep'))
     if '--columns' in sys.argv:          # (debug: the column model alone)
         part.exportStep(f'/tmp/columns_top_{side}.step')
         import pickle
-        pickle.dump((L, P, Lb, below, above, bands), open(f'/tmp/columns_top_{side}.pkl', 'wb'))
+        pickle.dump((L, P, Lb), open(f'/tmp/columns_top_{side}.pkl', 'wb'))
         raise SystemExit(0)
+    return top_after_columns(side, part)
+
+
+def top_after_columns(side, part):
+    """The top's steps after its column model: keep-outs, the XIAO pocket and end, the holes, as milled."""
     # keep-outs (PCB, parts, pads, XIAO, switch cut-outs, window) as the mill cuts them from below
     pockets = keepout_pockets('top', side, None)
     part = stage(feat.cut(part, pockets, what='keep-outs'), 'keep-out pockets', side)
@@ -387,44 +406,63 @@ def top(side, bottom_part=None):
     part = stage(feat.cut(part, xiao_end('top', side, pockets + xp)), 'XIAO end opened', side)
     holes = [clean.revolve_cutter(clean.hole_profiles('top', Z_SEAM - 1, Z_TOP), x, y) for x, y in build.SCREWS[side]]
     part = stage(feat.cut(part, holes, what='screw holes'), 'countersunk screw holes', side)
+    # (kept, so the last step can be rerun alone: model.py milled-top SIDE)
+    part.exportBrep(str(W / f'pre_milled_top_{side}.brep'))
     return stage(as_milled(part, side, 'top'), 'as milled', side)
 
 
 def as_milled(part, side, what):
     """The last step of each part: where the checker (machinable.py, Ø2 flat end mill) still finds a
     speck the mill can't cut (a hair where two outlines nearly meet), the metal is filled up to the
-    height the mill leaves there: the model is what the machine makes."""
+    height the mill leaves there: the model is what the machine makes. At the speck's height, the
+    air the tool can't sweep (the air less its opening by the tool's radius) is filled whole near the
+    speck, up to the metal over it (under it, from above): the fill's edges are the tool's own arcs,
+    so it leaves no new hair beside it."""
     bb = part.BoundingBox()
+    frame = sg.box(bb.xmin - 5, bb.ymin - 5, bb.xmax + 5, bb.ymax + 5)
     for rnd in range(7):
         # (checked on a copy: meshing a shape stores the mesh on it and can loosen its tolerances)
         spots = clean.checker_spots(part.copy(), screws=build.SCREWS[side])
         if not spots:
             return part
-        assert rnd < 6, f'{side} {what}: specks left after 6 rounds of filling'
+        if rnd == 6:
+            part.exportBrep(f'/tmp/asmilled_fail_{what}_{side}.brep')
+            raise AssertionError(f'{side} {what}: specks left after 6 rounds of filling '
+                                 f'(part in /tmp/asmilled_fail_{what}_{side}.brep)')
         m = mill.mesh_of(part.copy(), 0.002)
-        fills = []
+        fills, done = [], sg.Polygon()
         for poly, kind, h in spots:
-            poly = poly.buffer(0.05, quad_segs=4)
-            # the fill reaches the metal everywhere over the spot (no air left between them)
-            x0, y0, x1, y1 = poly.bounds
+            if done.contains(poly):
+                continue
+            # the air at the speck's height, just inside the side the mill comes from, and what the
+            # tool (R1.0, the checker's, and 0.02 to spare) can't sweep of it near the speck
+            z = h + 0.005 if kind == 'bottom' else h - 0.005
+            air = frame.difference(mill.section(m, z))
+            reach = air.buffer(-1.02, quad_segs=32).buffer(1.02, quad_segs=32)
+            left = air.difference(reach)
+            near = unary_union([g for g in pieces(left) if g.intersects(poly.buffer(0.1))] + [poly])
+            near = near.buffer(0.01, quad_segs=4)
+            done = done.union(near)
+            # up to the first metal over the fill (down to the last under it), never past the part
+            x0, y0, x1, y1 = near.bounds
             X, Y = np.meshgrid(np.arange(x0, x1 + 0.025, 0.025), np.arange(y0, y1 + 0.025, 0.025))
-            inside = [(x, y) for x, y in zip(X.ravel(), Y.ravel()) if poly.contains(sg.Point(x, y))] or \
-                     [tuple(poly.representative_point().coords[0])]
+            inside = [(x, y) for x, y in zip(X.ravel(), Y.ravel()) if near.contains(sg.Point(x, y))] or \
+                     [tuple(near.representative_point().coords[0])]
             o = np.array([[x, y, -50.0] for x, y in inside])
             loc, idx, _ = m.ray.intersects_location(o, np.tile([0, 0, 1.0], (len(o), 1)), multiple_hits=True)
             cols = [sorted(loc[idx == i, 2]) for i in range(len(o))]
             if kind == 'bottom':
-                firsts = [next((z for z in c if z > h + 1e-6), None) for c in cols]
-                firsts = [z for z in firsts if z is not None]
-                if firsts:   # (never past the part's own faces)
-                    fills += prism(poly, h, min(max(firsts) + 0.05, bb.zmax))
+                firsts = [z for z in (next((z for z in c if z > h + 1e-6), None) for c in cols) if z is not None]
+                if firsts:
+                    fills += prism(near, h, min(max(firsts) + 0.05, bb.zmax))
             else:
-                lasts = [next((z for z in reversed(c) if z < h - 1e-6), None) for c in cols]
-                lasts = [z for z in lasts if z is not None]
+                lasts = [z for z in (next((z for z in reversed(c) if z < h - 1e-6), None) for c in cols) if z is not None]
                 if lasts:
-                    fills += prism(poly, max(min(lasts) - 0.05, bb.zmin), h)
-            log(side, f'{what}: speck ({kind}) at {np.round(poly.centroid.coords[0], 2)}, {poly.area:.3f} mm^2, filled to {h:.3f}')
+                    fills += prism(near, max(min(lasts) - 0.05, bb.zmin), h)
+            log(side, f'{what}: speck ({kind}) at {np.round(poly.centroid.coords[0], 2)}, {poly.area:.3f} mm^2: '
+                      f'{near.area:.3f} mm^2 the tool can\'t sweep there filled from {h:.3f}')
         part = feat.fuse(part, fills, what='specks filled', overlapping=True)
+        part = stage(part, f'{what}: specks filled, round {rnd + 1}', side)
     return part
 
 
@@ -562,7 +600,23 @@ def cut_from_below(L, P, Lb, layers):
     return L2, nP, [(idx[float(zb)], idx[float(zt)] - 1) for zb, zt in nc]
 
 
+def unified(part, name):
+    """The part with its coplanar (and co-cylindrical) neighbouring faces merged into one: no seam
+    left where two features' faces meet in one plane (a CAM program picks a face to drill the holes
+    in it: a seam ring round a hole hides it). Checked: one valid solid, the same volume."""
+    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+    u = ShapeUpgrade_UnifySameDomain(part.wrapped, True, True, True)
+    u.SetLinearTolerance(1e-5); u.SetAngularTolerance(1e-7)
+    u.Build()
+    out = cq.Shape.cast(u.Shape())
+    sols = out.Solids()
+    assert len(sols) == 1 and sols[0].isValid() and abs(sols[0].Volume() - part.Volume()) < 1e-3, (name, 'unify')
+    log(name, f'faces merged where coplanar: {len(part.Faces())} -> {len(sols[0].Faces())}')
+    return sols[0]
+
+
 def publish(part, name):
+    part = unified(part, name)
     back = build.validate_step(part, W / name) if '--dev' in sys.argv else build.validate_step(part, build.OUT / name)
     log('written', name, 'valid', back.isValid(), 'volume', round(back.Volume(), 2))
     return back
@@ -572,6 +626,13 @@ if __name__ == '__main__':
     # model.py top|bottom|all L|R|LR [--dev]: --dev writes work/model_*.step, else ../outputs/
     kind, sides = sys.argv[1], sys.argv[2]
     dev = '--dev' in sys.argv
+    if kind == 'milled-top':   # the top's last step alone, from pre_milled_top_SIDE.brep
+        for side in sides:
+            part = cq.Shape.importBrep(str(W / f'pre_milled_top_{side}.brep'))
+            t = publish(stage(as_milled(part, side, 'top'), 'as milled', side),
+                        f'model_top_{side}.step' if dev else f'TOTEM_alu_top_{side}.step')
+            publish(insert(side, t), f'model_insert_{side}.step' if dev else f'TOTEM_wood_window_insert_{side}.step')
+        raise SystemExit(0)
     for side in sides:
         EVENTS.clear()
         # the bottom first: the top makes room for it
