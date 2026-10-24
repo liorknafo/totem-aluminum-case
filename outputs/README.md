@@ -1,11 +1,12 @@
 # TOTEM BLE case — aluminum version (no contact with the PCB)
 
-Machining: all four aluminum parts can be cut on a 3-axis mill in two setups with flat end mills
-of Ø2 mm or bigger — no ball-nose tool. They are clean CAD: every face exactly vertical or flat,
-outlines drawn with lines and true arcs, except the **90°** screw countersinks in the tops (a 90°
-countersink bit, for metric M2 countersunk screws). The M2 threads are tapped in the bottoms. The
-checks are
-in `CHECKS.md`.
+Machining: all four aluminum parts can be cut on a 3-axis mill in two setups with a Ø2 mm flat end
+mill (or bigger), on 3D toolpaths where a face slopes — no ball-nose tool. They are a parametric
+CadQuery model (`work/model.py`, see "Parametric model" below): outlines are lines, true arcs and
+the original's B-splines; the bottoms' leg ramps are real 21° planes (no more steps), with 45° foot
+chamfers inside the walls; the tops' screw countersinks are **90°** cones (a 90° countersink bit,
+for metric M2 countersunk screws). The M2 threads are tapped in the bottoms. The checks are in
+`CHECKS.md`.
 
 Made from copies of the four files in `~/Downloads/TOTEM_cases_STEP` (those originals are untouched;
 their SHA-256 still match `validation.json`). Units mm, same coordinates as the originals.
@@ -39,7 +40,8 @@ Top:
   can be faced on both sides; the bottom rim grew 0.5 mm; total height unchanged;
 - window through the roof above each XIAO (14 × 18.5 mm, from the far end of the module up to just
   short of the USB-C end) for Bluetooth, closed by the wood insert;
-- the reset button keeps its original round access hole; only the switch's metal body got room;
+- the reset button's plastic plunger runs out through a 3.4 × 2.0 mm slot in the back seam (0.2 mm
+  clear all round); only the switch's metal body got 0.5 mm;
 - dogbones (R1.05, in the 1.2 mm clip ledge) at the four corners of every 13.8 mm switch cut-out,
   so a Ø2 mm end mill leaves room for the switches' square corners. They reach 0.33 mm past the
   cut-out's edges, over the 16 mm recess below, so the 3.2 mm webs between switches stay whole.
@@ -90,15 +92,33 @@ The implemented machining changes are:
 - the screw holes are drilled, not milled (see "Screws" below): in the top a 90° countersink
   (Ø4.30 at the top face) over a Ø2.4 pass-through hole; in the bottom a blind Ø1.6 hole, tapped M2.
 
-- strict 2.5D (no ball-nose mill): every sloped face became vertical walls and flat floors. The
-  power-switch and reset bevels are straight openings at their outer size, the arches at the back
-  wall are square, the 22° leg-recess ramps are 0.5 mm flat steps, and the bottoms' slightly drafted
-  walls (from the site's mesh) are rebuilt exactly vertical. This only removes material
-  (≈190 mm³ per bottom, mostly the stepped leg ramps; ≈20 mm³ per top), so no clearance gets smaller;
-- R1.05 reliefs where the steps left a corner the Ø2 mill couldn't reach (3 per bottom, ≈15 mm³
-  each half), also removal only.
+- 3D toolpaths with the same Ø2 flat end mill where a face slopes: the bottoms' leg ramps (one 21.1°
+  plane each, the original's own; its 0.32 mm side rails are left out, as a flat mill can't run a
+  ramp up beside a wall), the 45° foot chamfers inside the walls and the power-switch notch's 30°
+  flanks. The back-wall arches are square and the reset bevel straight (2 mm features a Ø2 flat
+  mill can't shape), and the walls are exactly vertical (the site's mesh drafted them 0–2°).
 
-## Clean CAD (2026-10-22)
+## Parametric model (2026-10-24)
+
+All six parts are now built by a parametric CadQuery model, `work/model.py`, instead of repairing
+the 3D-print parts. It never opens those originals: `work/ref_extract.py` took their reference
+shapes once into `work/model_ref.json` — the outline with the original top's own lines, arcs and
+B-splines (the original bottom, a triangle mesh, follows it within 0.4 mm), the plateau, leg
+recesses, battery pocket, feet and the leg ramp's plane fitted to the bottom's facets, and the top's
+air band by band. Everything else is designed in the code: the walls, seams and notches, chamfers,
+screw holes, the XIAO pocket and its open end, the window. The board, parts, pads and XIAO keep-outs
+(from KiCad) are cut as the Ø2 mill makes them, drawn with true arcs; the top then makes room for
+the bottom as the mill leaves it (0.2 mm), and a last check fills any speck the mill can't reach.
+Every stage must be one valid solid that survives a STEP round trip. Rebuild: `cd work &&
+python model.py all L` (and `R`), about 25 minutes per half.
+
+Compared with the clean 2.5D parts before it: the leg ramps are planes instead of 0.5 mm steps; the
+back and left walls are designed with a flat seam (the bottom's wall top at h, the top's 0.4 mm
+above it; no lips and no fins); the outer outline keeps the original's B-splines; the reset slot is
+sized to the plunger. Volumes: tops ≈17.56–17.58 cm³ (were 17.73–17.75), bottoms ≈70.72–70.76 cm³
+(were 70.19–70.20).
+
+## Clean CAD (2026-10-22, superseded by the parametric model)
 
 The four aluminum parts were then rebuilt as clean CAD (`work/clean.py`), keeping the overall
 size and everything that works (fit, clearances, screws, switch clips, leg recesses):
@@ -151,7 +171,8 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
   the module's end, from the bottom's pocket floor (z 1.1) to the top's pocket roof (z 6.45): the
   side opening is the module's end, about 19 × 5.4 mm, split by the seam. The USB-C port is easier
   to reach (a plug's overmould can come right up to it).
-- **Back seam.** Along the back wall the two parts met in a tongue and groove whose halves were
+- **Back seam** (now designed in the parametric model: a flat seam over every stretch, see above).
+  Along the back wall the two parts met in a tongue and groove whose halves were
   castellated: the original's arches, cut as 2.5D steps, left the bottom's outer lip (0.2 mm wide)
   jumping up and down every few tenths of a millimetre under a flat top, a toothed seam line on
   the back face. Over the straight runs of the back wall (x 32–60, 101–118 and 128–141 on the
@@ -174,8 +195,10 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
   use bigger ones for roughing. Deepest Ø2 mm work: the switch-cut-out dogbones through the 1.2 mm
   ledge (reached from below through the 16 mm recesses, ~4 mm below the top's underside face) and
   the keycap-well corners (6.85 mm deep from the top face).
-- All 2.5D: pockets and contours only, vertical walls and flat floors, flat end mills of Ø2 mm or
-  larger. Only the 90° screw countersinks in the tops are conical (90° countersink bit). Drill the
+- Pockets and contours with flat end mills of Ø2 mm or larger; 3D finishing (same Ø2 flat end mill,
+  small step-over) on the bottoms' leg ramps (from below), the foot chamfers inside the walls and
+  the power-switch notch flanks (from above). The 90° screw countersinks in the tops are conical
+  (90° countersink bit). Drill the
   tops' screw holes Ø2.4 through; drill the bottoms' Ø1.6, 6 mm deep from the boss tops (no
   deeper: two of them are 0.8 mm over a leg recess), and tap them M2 × 0.4 5.5 mm deep (a
   bottoming tap for the last turns).
@@ -204,7 +227,8 @@ the original; renders).
 
 Original design: TOTEM, Copyright (c) 2022 GEIST, CERN-OHL-P v2 (see `LICENSE.md`).
 Modified 2026-10-20 for an aluminum case as described above; 2026-10-21/22 made cuttable in two
-setups with Ø2 mm flat end mills, strictly 2.5D, and rebuilt as clean CAD.
+setups with Ø2 mm flat end mills and rebuilt as clean CAD; 2026-10-24 rebuilt as a parametric
+model with the original's slopes back (3D toolpaths).
 
 ## 3D view
 

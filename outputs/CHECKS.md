@@ -5,180 +5,229 @@ Distances are exact (OpenCASCADE BRepExtrema) between each case part and the KiC
 
 | | Left | Right | Original (left) |
 |---|---|---|---|
-| Top to PCB (outside the 4 floating pads) | 0.10 mm | 0.10 mm | 0.10 mm |
-| Bottom to PCB | 0.53 mm | 0.53 mm | 0.35 mm |
+| Top to PCB (outside the 4 floating pads) | 0.52 mm | 0.52 mm | 0.10 mm |
+| Bottom to PCB | 0.52 mm | 0.53 mm | 0.35 mm |
 | Top to nearest part (switch bodies and diodes aside) | 0.50 mm | 0.50 mm |  |
 | Top to diode epoxy (insulator) | 0.37 mm | 0.37 mm |  |
-| Bottom to nearest part (sockets, contacts, pins) | 0.51 mm | 0.51 mm |  |
+| Bottom to nearest part (sockets, contacts, pins) | 0.50 mm | 0.50 mm |  |
 | Top to XIAO | 0.52 mm | 0.52 mm |  |
-| Bottom to XIAO | 0.57 mm | 0.56 mm |  |
+| Bottom to XIAO | 0.57 mm | 0.55 mm |  |
 | Wood insert to XIAO | 1.57 mm | 1.57 mm |  |
 | Top to exposed pads | 0.80 mm | 0.80 mm |  |
 | Bottom to exposed pads | 0.51 mm | 0.51 mm |  |
-| Top/bottom seam gap | 0.00 mm | 0.00 mm |  |
+| Top/bottom seam gap | 0.20 mm | 0.20 mm |  |
 
-Reset switch: its metal body keeps 0.5 mm; its plastic plunger sits in the original round hole (plunger to top/bottom [0.2, 0.137] mm, as designed).
+Reset switch: its metal body keeps 0.5 mm; its plastic plunger runs out through a 3.4 x 2.0 mm slot in the back seam, 0.2 mm clear all round (plunger to top/bottom [0.2, 0.2] mm left, [0.2, 0.2] mm right).
 
-Top/bottom overlap: 0.122852 / 0.037258 mm³.
+Top/bottom overlap: 0.0 / 0.0 mm³.
 The top never touches the floating mounting pads either: it stays 0.1 mm above them, as in the original.
 
 ## Sizes
 
-- L top: [133.11, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17754.6]
-- L bottom: [133.08, 98.99, 15.39, 'z', -11.4, 3.99], valid/solids/volume [True, 1, 70190.2]
+- L top: [133.1, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17564.7]
+- L bottom: [133.11, 99.01, 15.6, 'z', -11.4, 4.2], valid/solids/volume [True, 1, 70715.6]
 - L insert: [21.5, 17.0, 3.0, 'z', 7.5, 10.5], valid/solids/volume [True, 1, 916.8]
-- R top: [133.1, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17741.2]
-- R bottom: [133.09, 98.99, 15.39, 'z', -11.4, 3.99], valid/solids/volume [True, 1, 70179.0]
+- R top: [133.1, 99.01, 12.0, 'z', -1.5, 10.5], valid/solids/volume [True, 1, 17579.9]
+- R bottom: [133.1, 99.01, 15.6, 'z', -11.4, 4.2], valid/solids/volume [True, 1, 70755.1]
 - R insert: [21.5, 17.0, 3.0, 'z', 7.5, 10.5], valid/solids/volume [True, 1, 919.2]
 
-## Clean CAD rebuild
+## Parametric model
 
-All four aluminum parts are rebuilt as clean CAD (`work/clean.py`): every face exactly horizontal or
-vertical, outlines drawn with lines and true arcs, the screw holes as exact cylinders and 82° cones.
-Each part is taken from the build as one column of metal per (x, y) between flat faces; the
-hairline slivers and microscopic steps the build's mesh booleans left between near-identical walls
-are merged into a neighbour (into the side with less metal where there is one), every boundary between
-two regions is fitted once with lines and arcs (0.002 mm), and every region becomes one prism.
+The parts are built by `work/model.py` (CadQuery features). It never opens the original 3D-print
+parts: their reference shapes are curves in `work/model_ref.json` (lines, arcs and the outline's
+B-splines, taken once by `work/ref_extract.py`). The outline keeps the original's own curves, its
+inside corners rounded R1.05; the bottom is designed feature by feature (block, plateau, walls and
+their seam, the 21° leg ramp as one exact plane, leg recesses, battery pocket, feet, notches, foot
+chamfers, tapped screw holes); the top takes the original's air band by band, reached from below or
+from above as a Ø2 mill cuts it, as one column model (`clean.make_solid`), then the designed seams
+and notches. Both get every keep-out (PCB, parts, pads, XIAO) cut as the mill makes it; the top
+then makes room for the bottom as milled (0.2 mm), and a last check fills any speck the mill
+leaves. Every stage must be one valid solid that survives a STEP round trip.
 
-| Part | Faces | Arcs / lines in the outlines | Volume, build → clean (mm³) | STEP size |
-|---|---|---|---|---|
-| L top | 3133 | 839 / 2508 | 17435.4 → 17754.7 | 13 MB |
-| L bottom | 3756 | 1076 / 2942 | 69741.1 → 70190.2 | 16 MB |
-| R top | 3240 | 721 / 2643 | 17439.6 → 17741.2 | 13 MB |
-| R bottom | 3407 | 1006 / 2585 | 69729.9 → 70179.0 | 14 MB |
+| Part | Faces | Volume (mm³) |
+|---|---|---|
+| L top | 5985 | 17564.8 |
+| L bottom | 1773 | 70715.6 |
+| R top | 4595 | 17579.9 |
+| R bottom | 1764 | 70755.1 |
 
-What the rebuild changed, part by part (all logged in `work/clean_*.log`):
-
-- L top: opening through the part at (51.77, -69.27), 0.010 mm², closed; keycap-well floor at (127.24, -56.72) over a diode-pocket end raised 3.650 → 4.150 (3.63 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (120.24, -56.72) over a diode-pocket end raised 3.650 → 4.150 (3.63 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (91.26, -97.42) over a diode-pocket end raised 3.650 → 4.150 (24.51 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (49.08, -70.47) over a diode-pocket end raised 3.650 → 4.150 (8.57 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (33.92, -100.11) over a diode-pocket end raised 3.650 → 4.200 (13.13 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); walls under 0.8 mm beside the keycap wells thickened into the wells, 0.3 mm clear of the keycaps and switch housings (163.087 mm³); the 0.14 mm wall in front of the XIAO's USB end opened (3.01 mm³); XIAO pocket widened to 0.52 mm all round (1.13 mm³); hairline specks on the outer faces removed (0.172 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (2.45 mm³).
-- L bottom: 11 hairline horizontal cracks inside the part filled (largest 0.24 mm²); 0.55 mm floor at (130.36, -136.58), 0.79 mm², made 0.6 mm or more (pad underneath, -2.250 → -2.505); 0.78 mm floor at (18.57, -101.83), 0.46 mm², made 0.6 mm or more (pad underneath, -2.482 → -2.505); the 0.14 mm wall in front of the XIAO's USB end opened (5.06 mm³); hairline specks on the outer faces removed (0.574 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (1.18 mm³).
-- R top: keycap-well floor at (274.02, -100.14) over a diode-pocket end raised 3.650 → 4.200 (12.67 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (258.85, -70.48) over a diode-pocket end raised 3.650 → 4.150 (8.33 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (216.81, -97.34) over a diode-pocket end raised 3.650 → 4.150 (23.80 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (189.16, -56.73) over a diode-pocket end raised 3.650 → 4.150 (3.74 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); keycap-well floor at (182.16, -56.73) over a diode-pocket end raised 3.650 → 4.150 (3.74 mm² ledge; the plate there was 0.45–0.52 mm, now 1.0 mm or more); walls under 0.8 mm beside the keycap wells thickened into the wells, 0.3 mm clear of the keycaps and switch housings (141.602 mm³); the 0.14 mm wall in front of the XIAO's USB end opened (1.63 mm³); XIAO pocket widened to 0.52 mm all round (1.12 mm³); hairline specks on the outer faces removed (0.167 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (1.89 mm³).
-- R bottom: opening through the part at (286.45, -107.01), 0.653 mm², closed; 2 hairline horizontal cracks inside the part filled (largest 0.01 mm²); 0.55 mm floor at (177.45, -136.6), 0.98 mm², made 0.6 mm or more (pad underneath, -2.250 → -2.505); 0.46 mm floor at (285.68, -106.9), 3.30 mm², made 0.6 mm or more (floor raised, -3.200 → -2.554); 0.65 mm floor at (286.62, -106.97), 3.67 mm², made 0.6 mm or more (pad underneath, -3.200 → -3.354); 0.74 mm floor at (289.28, -101.87), 0.47 mm², made 0.6 mm or more (pad underneath, -2.436 → -2.505); the 0.14 mm wall in front of the XIAO's USB end opened (1.87 mm³); hairline specks on the outer faces removed (0.999 mm² in plan, up to 0.05 mm deep); corners the Ø2 mill cannot reach after the above filled as the mill leaves them (1.01 mm³).
-
-The published parts against the build's, column by column on a 0.05 mm grid (metal only in the
-build's part = removed, only in the published part = added; spots over 0.05 mm³). The screw holes
-show up because they changed: a Ø2.4 hole under a 90° countersink in the top (was a Ø3.2 standoff bore),
-a blind Ø1.6 tap-drill hole in the bottom (was a counterbore and countersink from below); strips one
-grid cell wide along the outer faces are walls that moved by a few microns across a grid line:
+The parts against the previous ones (the clean 2.5D rebuild of the 3D-print parts), column by column
+on a 0.05 mm grid (metal only in the previous part = removed, only in the new one = added; spots over
+0.05 mm³): the leg ramp is now a plane instead of steps, the walls and seams are designed:
 
 ```
-top L: volume old 17435.41 new 17754.83
-top L: removed: 16.217 mm^3 in total (columns differing by more than 0.005 mm); 7 spots over 0.05 mm^3
-top L:      3.276 mm^3, 24.515 mm^2, up to 2.820 mm deep, at (  29.46,  -59.61) 1.50 x 20.05
-top L:      1.870 mm^3,  1.633 mm^2, up to 5.865 mm deep, at (  50.95,  -68.63) 7.80 x 1.40
-top L:      0.408 mm^3,  1.383 mm^2, up to 0.407 mm deep, at (  34.30, -121.01) 2.40 x 2.40
-top L:      0.406 mm^3,  1.375 mm^2, up to 0.406 mm deep, at ( 139.50, -112.00) 2.40 x 2.40
-top L:      0.406 mm^3,  1.375 mm^2, up to 0.406 mm deep, at ( 131.20,  -52.70) 2.40 x 2.40
-top L:      0.406 mm^3,  1.375 mm^2, up to 0.406 mm deep, at (  57.00,  -52.70) 2.40 x 2.40
-top L:      0.069 mm^3,  0.010 mm^2, up to 6.850 mm deep, at (  53.96,  -53.44) 0.05 x 0.20
-top L: added: 338.811 mm^3 in total (columns differing by more than 0.005 mm); 14 spots over 0.05 mm^3
+top L: volume old 17745.73 new 17564.93
+top L: removed: 240.772 mm^3 in total (columns differing by more than 0.005 mm); 23 spots over 0.05 mm^3
 top L:     60.424 mm^3, 11.343 mm^2, up to 6.850 mm deep, at ( 123.37,  -56.65) 12.45 x 1.35
 top L:     37.372 mm^3, 10.295 mm^2, up to 8.350 mm deep, at (  49.62,  -70.33) 8.75 x 2.50
-top L:     27.725 mm^3,  4.048 mm^2, up to 6.850 mm deep, at (  67.57,  -55.36) 5.85 x 1.20
-top L:     26.432 mm^3,  9.562 mm^2, up to 7.443 mm deep, at (  57.00,  -52.70) 4.25 x 4.25
-top L:     26.432 mm^3,  9.562 mm^2, up to 7.443 mm deep, at ( 131.20,  -52.70) 4.25 x 4.25
-top L:     26.415 mm^3,  9.562 mm^2, up to 7.443 mm deep, at ( 139.50, -112.00) 4.25 x 4.25
-top L:     26.269 mm^3,  9.565 mm^2, up to 7.443 mm deep, at (  34.30, -121.01) 4.25 x 4.25
-top L:     25.951 mm^3, 15.123 mm^2, up to 6.850 mm deep, at (  34.44,  -99.71) 9.95 x 4.80
-top L:     18.867 mm^3, 27.463 mm^2, up to 0.700 mm deep, at (  46.81,  -48.15) 28.20 x 2.10
+top L:     27.708 mm^3,  4.045 mm^2, up to 6.850 mm deep, at (  67.57,  -55.36) 5.85 x 1.20
+top L:     25.946 mm^3, 15.085 mm^2, up to 7.400 mm deep, at (  34.45,  -99.70) 9.95 x 4.80
+top L:     21.483 mm^3, 15.408 mm^2, up to 4.050 mm deep, at (  66.29,  -48.48) 12.30 x 1.50
 top L:     16.269 mm^3,  2.375 mm^2, up to 6.850 mm deep, at (  60.63, -119.79) 1.65 x 3.35
-top L:     12.998 mm^3,  1.898 mm^2, up to 6.850 mm deep, at ( 144.95, -120.70) 2.30 x 1.85
-top L:     12.575 mm^3, 25.140 mm^2, up to 1.485 mm deep, at (  91.47,  -97.59) 11.80 x 7.35
-top L:     10.589 mm^3, 15.128 mm^2, up to 0.700 mm deep, at ( 109.59,  -48.09) 16.90 x 0.90
-top L:      9.369 mm^3, 13.658 mm^2, up to 0.700 mm deep, at ( 135.54,  -48.13) 15.10 x 1.50
-bottom L: volume old 69741.12 new 70190.33
-bottom L: removed: 18.387 mm^3 in total (columns differing by more than 0.005 mm); 32 spots over 0.05 mm^3
-bottom L:      4.108 mm^3,  2.405 mm^2, up to 2.910 mm deep, at (  28.70,  -59.59) 0.15 x 16.20
-bottom L:      1.576 mm^3,  2.295 mm^2, up to 4.800 mm deep, at ( 131.41,  -47.89) 6.60 x 0.45
-bottom L:      0.849 mm^3,  0.228 mm^2, up to 9.700 mm deep, at ( 117.98, -131.29) 3.70 x 1.15
-bottom L:      0.542 mm^3,  0.088 mm^2, up to 6.200 mm deep, at (  76.02,  -94.78) 0.10 x 1.35
-bottom L:      0.458 mm^3,  0.080 mm^2, up to 9.295 mm deep, at (  99.68, -128.11) 1.60 x 0.05
-bottom L:      0.340 mm^3,  0.630 mm^2, up to 0.700 mm deep, at ( 139.64,  -47.83) 3.55 x 0.65
-bottom L:      0.319 mm^3,  0.610 mm^2, up to 0.700 mm deep, at (  33.02,  -47.84) 2.60 x 0.65
-bottom L:      0.306 mm^3,  0.105 mm^2, up to 2.910 mm deep, at (  28.82,  -69.17) 0.45 x 0.65
-bottom L:      0.301 mm^3,  0.060 mm^2, up to 9.700 mm deep, at ( 124.15, -133.51) 0.65 x 0.30
-bottom L:      0.262 mm^3,  0.090 mm^2, up to 2.910 mm deep, at (  28.69,  -50.00) 0.15 x 0.80
-bottom L:      0.255 mm^3,  0.365 mm^2, up to 0.700 mm deep, at ( 115.68,  -47.86) 1.25 x 0.45
-bottom L:      0.223 mm^3,  0.358 mm^2, up to 0.700 mm deep, at ( 104.66,  -47.82) 1.75 x 0.45
-bottom L:      0.216 mm^3,  0.312 mm^2, up to 0.700 mm deep, at ( 107.37,  -47.82) 1.50 x 0.45
-bottom L:      0.197 mm^3,  0.350 mm^2, up to 0.700 mm deep, at ( 135.80,  -47.85) 1.45 x 0.45
-bottom L:      0.177 mm^3,  0.280 mm^2, up to 0.700 mm deep, at ( 110.10,  -47.84) 1.15 x 0.45
-bottom L:      0.173 mm^3,  0.268 mm^2, up to 0.700 mm deep, at (  43.13,  -47.84) 1.15 x 0.45
-bottom L:      0.170 mm^3,  0.468 mm^2, up to 0.700 mm deep, at ( 101.99,  -47.84) 1.75 x 0.40
-bottom L:      0.151 mm^3,  0.273 mm^2, up to 0.700 mm deep, at ( 112.96,  -47.83) 1.20 x 0.45
-bottom L:      0.149 mm^3,  0.018 mm^2, up to 9.200 mm deep, at ( 122.36, -132.76) 0.35 x 0.15
-bottom L:      0.144 mm^3,  0.018 mm^2, up to 9.200 mm deep, at ( 121.96, -132.61) 0.35 x 0.15
-bottom L: added: 468.994 mm^3 in total (columns differing by more than 0.005 mm); 10 spots over 0.05 mm^3
-bottom L:    131.519 mm^3, 14.375 mm^2, up to 10.900 mm deep, at ( 139.50, -112.00) 4.25 x 4.25
-bottom L:    131.387 mm^3, 14.315 mm^2, up to 10.850 mm deep, at (  34.30, -121.02) 4.25 x 4.25
-bottom L:    131.341 mm^3, 14.345 mm^2, up to 10.850 mm deep, at (  57.00,  -52.70) 4.25 x 4.30
-bottom L:     73.316 mm^3, 12.343 mm^2, up to 6.800 mm deep, at ( 131.20,  -52.70) 4.25 x 4.25
-bottom L:      0.206 mm^3,  0.023 mm^2, up to 9.150 mm deep, at (  72.66,  -47.66) 0.45 x 0.05
-bottom L:      0.174 mm^3,  0.548 mm^2, up to 4.795 mm deep, at ( 132.99, -138.10) 5.45 x 3.20
-bottom L:      0.134 mm^3,  0.025 mm^2, up to 5.555 mm deep, at ( 128.38,  -47.66) 0.50 x 0.05
-bottom L:      0.103 mm^3,  0.025 mm^2, up to 4.100 mm deep, at ( 141.86,  -47.76) 0.20 x 0.20
-bottom L:      0.074 mm^3,  0.115 mm^2, up to 0.646 mm deep, at ( 107.33,  -95.66) 2.30 x 0.05
-bottom L:      0.056 mm^3,  0.010 mm^2, up to 5.600 mm deep, at ( 140.08,  -47.71) 0.20 x 0.05
-top R: volume old 17439.98 new 17741.27
-top R: removed: 12.317 mm^3 in total (columns differing by more than 0.005 mm); 11 spots over 0.05 mm^3
-top R:      1.899 mm^3, 24.535 mm^2, up to 2.055 mm deep, at ( 278.39,  -59.61) 1.50 x 20.05
-top R:      1.826 mm^3,  1.618 mm^2, up to 5.865 mm deep, at ( 256.99,  -68.64) 7.65 x 1.35
-top R:      0.408 mm^3,  1.380 mm^2, up to 0.407 mm deep, at ( 168.46, -112.00) 2.40 x 2.40
-top R:      0.408 mm^3,  1.380 mm^2, up to 0.407 mm deep, at ( 176.76,  -52.70) 2.40 x 2.40
-top R:      0.408 mm^3,  1.380 mm^2, up to 0.407 mm deep, at ( 273.66, -121.00) 2.40 x 2.40
-top R:      0.408 mm^3,  1.380 mm^2, up to 0.407 mm deep, at ( 250.96,  -52.70) 2.40 x 2.40
-top R:      0.073 mm^3,  0.020 mm^2, up to 3.650 mm deep, at ( 163.93, -119.84) 0.25 x 0.40
-top R:      0.052 mm^3,  0.020 mm^2, up to 5.350 mm deep, at ( 164.11,  -49.94) 0.10 x 0.35
-top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 269.05, -118.66) 0.15 x 0.05
-top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 229.50,  -99.96) 0.05 x 0.15
-top R:      0.051 mm^3,  0.008 mm^2, up to 6.850 mm deep, at ( 254.35,  -54.21) 0.15 x 0.15
-top R: added: 316.379 mm^3 in total (columns differing by more than 0.005 mm); 15 spots over 0.05 mm^3
-top R:     60.424 mm^3, 11.405 mm^2, up to 6.850 mm deep, at ( 185.33,  -56.66) 12.40 x 1.35
-top R:     36.162 mm^3, 10.062 mm^2, up to 6.850 mm deep, at ( 258.31,  -70.34) 8.70 x 2.50
-top R:     26.470 mm^3,  9.553 mm^2, up to 7.443 mm deep, at ( 176.76,  -52.70) 4.25 x 4.25
-top R:     26.468 mm^3,  9.553 mm^2, up to 7.443 mm deep, at ( 250.96,  -52.70) 4.25 x 4.25
-top R:     26.451 mm^3,  9.553 mm^2, up to 7.443 mm deep, at ( 273.66, -121.00) 4.25 x 4.25
-top R:     26.451 mm^3,  9.553 mm^2, up to 7.443 mm deep, at ( 168.46, -112.00) 4.25 x 4.25
+top L:     14.760 mm^3,  3.398 mm^2, up to 8.000 mm deep, at ( 144.80, -120.98) 2.30 x 2.90
+top L:     12.582 mm^3, 25.140 mm^2, up to 1.485 mm deep, at (  91.47,  -97.59) 11.80 x 7.35
+top L:      6.363 mm^3,  5.360 mm^2, up to 6.100 mm deep, at (  29.49,  -71.02) 1.95 x 3.55
+top L:      5.049 mm^3,  4.595 mm^2, up to 5.850 mm deep, at ( 142.42,  -48.41) 3.10 x 1.80
+top L:      3.832 mm^3,  5.963 mm^2, up to 7.400 mm deep, at (  30.40,  -48.62) 3.85 x 2.40
+top L:      2.030 mm^3,  4.765 mm^2, up to 5.650 mm deep, at (  99.86,  -48.38) 3.35 x 1.50
+top L:      0.831 mm^3,  0.723 mm^2, up to 1.150 mm deep, at ( 116.28, -129.39) 2.90 x 1.05
+top L:      0.681 mm^3,  0.593 mm^2, up to 1.150 mm deep, at (  21.54, -111.93) 0.60 x 1.90
+top L:      0.592 mm^3,  0.515 mm^2, up to 1.150 mm deep, at ( 143.97, -134.68) 0.95 x 1.45
+top L:      0.561 mm^3,  0.488 mm^2, up to 1.150 mm deep, at (  98.63, -126.80) 1.70 x 0.40
+top L:      0.520 mm^3,  0.453 mm^2, up to 1.150 mm deep, at ( 132.04, -136.09) 1.45 x 0.90
+top L:      0.355 mm^3,  1.590 mm^2, up to 2.280 mm deep, at ( 127.02,  -48.06) 3.65 x 1.50
+top L:      0.315 mm^3,  1.488 mm^2, up to 2.280 mm deep, at ( 119.05,  -48.04) 3.55 x 1.45
+top L:      0.288 mm^3,  0.250 mm^2, up to 1.150 mm deep, at (  96.38, -126.74) 1.35 x 0.25
+top L: added: 70.308 mm^3 in total (columns differing by more than 0.005 mm); 40 spots over 0.05 mm^3
+top L:     16.690 mm^3,  2.715 mm^2, up to 6.850 mm deep, at ( 132.31,  -83.44) 0.10 x 54.05
+top L:     11.035 mm^3,  4.328 mm^2, up to 2.550 mm deep, at (  28.88,  -59.60) 0.50 x 9.45
+top L:      6.881 mm^3,  2.995 mm^2, up to 4.650 mm deep, at ( 123.00,  -47.89) 7.75 x 0.60
+top L:      3.048 mm^3,  0.445 mm^2, up to 6.850 mm deep, at (  31.21,  -75.76) 1.95 x 0.75
+top L:      2.946 mm^3,  0.430 mm^2, up to 6.850 mm deep, at (  86.84, -127.24) 1.65 x 1.50
+top L:      2.539 mm^3,  3.470 mm^2, up to 6.850 mm deep, at ( 131.37,  -49.61) 5.50 x 1.55
+top L:      1.838 mm^3,  2.828 mm^2, up to 0.650 mm deep, at (  65.15,  -47.86) 7.25 x 0.50
+top L:      1.362 mm^3,  0.200 mm^2, up to 6.850 mm deep, at (  20.37, -102.03) 0.90 x 1.30
+top L:      1.344 mm^3,  0.193 mm^2, up to 12.000 mm deep, at ( 140.73, -142.32) 1.20 x 0.55
+top L:      1.275 mm^3, 12.123 mm^2, up to 0.550 mm deep, at ( 139.54, -112.01) 4.80 x 4.60
+top L:      1.246 mm^3,  0.180 mm^2, up to 12.000 mm deep, at ( 151.23, -124.16) 0.60 x 1.10
+top L:      1.193 mm^3, 11.933 mm^2, up to 0.100 mm deep, at (  34.30, -121.02) 4.65 x 4.70
+top L:      1.088 mm^3, 10.873 mm^2, up to 0.550 mm deep, at (  57.00,  -52.88) 4.60 x 4.45
+top L:      1.088 mm^3, 10.870 mm^2, up to 0.550 mm deep, at ( 131.20,  -52.88) 4.60 x 4.45
+top L:      1.079 mm^3,  0.158 mm^2, up to 6.850 mm deep, at (  75.68,  -45.45) 0.85 x 1.00
+top L:      1.034 mm^3,  1.478 mm^2, up to 0.700 mm deep, at ( 117.28,  -48.41) 1.20 x 1.50
+top L:      0.991 mm^3,  1.483 mm^2, up to 6.850 mm deep, at (  59.44,  -48.62) 1.00 x 2.95
+top L:      0.898 mm^3,  1.250 mm^2, up to 5.550 mm deep, at ( 128.76,  -48.46) 1.00 x 1.75
+top L:      0.870 mm^3,  1.243 mm^2, up to 0.700 mm deep, at ( 140.35,  -48.40) 1.00 x 1.50
+top L:      0.849 mm^3,  1.213 mm^2, up to 0.700 mm deep, at ( 101.98,  -48.40) 0.95 x 1.50
+bottom L: volume old 70198.27 new 70716.24
+bottom L: removed: 44.192 mm^3 in total (columns differing by more than 0.005 mm); 35 spots over 0.05 mm^3
+bottom L:      4.137 mm^3,  0.468 mm^2, up to 8.850 mm deep, at (  40.39, -114.70) 1.65 x 1.55
+bottom L:      3.806 mm^3,  0.430 mm^2, up to 8.850 mm deep, at (  40.32,  -58.36) 1.50 x 1.60
+bottom L:      3.385 mm^3,  0.383 mm^2, up to 8.850 mm deep, at (  79.66, -114.60) 1.55 x 1.65
+bottom L:      3.353 mm^3,  0.470 mm^2, up to 8.850 mm deep, at (  75.70,  -58.39) 1.55 x 1.65
+bottom L:      3.289 mm^3,  0.358 mm^2, up to 9.200 mm deep, at ( 111.11, -129.50) 5.15 x 1.15
+bottom L:      3.230 mm^3,  0.365 mm^2, up to 8.850 mm deep, at (  79.70, -103.41) 1.45 x 1.55
+bottom L:      2.901 mm^3, 17.865 mm^2, up to 0.309 mm deep, at (  28.24, -109.66) 0.80 x 23.35
+bottom L:      2.727 mm^3,  0.665 mm^2, up to 4.100 mm deep, at ( 141.82,  -48.42) 0.60 x 1.55
+bottom L:      2.665 mm^3,  0.653 mm^2, up to 4.800 mm deep, at ( 128.25,  -48.46) 0.65 x 1.50
+bottom L:      2.645 mm^3,  0.645 mm^2, up to 4.100 mm deep, at ( 124.47, -132.71) 1.10 x 1.20
+bottom L:      2.531 mm^3,  0.610 mm^2, up to 4.795 mm deep, at ( 136.29, -139.23) 1.00 x 1.65
+bottom L:      1.679 mm^3,  0.183 mm^2, up to 9.200 mm deep, at ( 105.06, -128.45) 3.05 x 0.35
+bottom L:      1.189 mm^3,  7.935 mm^2, up to 0.329 mm deep, at (  20.03, -105.48) 0.85 x 12.40
+bottom L:      0.887 mm^3,  6.312 mm^2, up to 0.321 mm deep, at (  21.23, -113.34) 0.85 x 10.45
+bottom L:      0.714 mm^3,  4.360 mm^2, up to 0.313 mm deep, at (  22.35, -118.72) 0.80 x 5.95
+bottom L:      0.560 mm^3,  4.062 mm^2, up to 0.323 mm deep, at (  19.14, -102.94) 0.85 x 7.15
+bottom L:      0.554 mm^3,  1.208 mm^2, up to 1.185 mm deep, at (  65.51,  -48.87) 6.55 x 0.85
+bottom L:      0.161 mm^3,  0.018 mm^2, up to 9.200 mm deep, at ( 103.26, -128.26) 0.35 x 0.05
+bottom L:      0.153 mm^3,  1.010 mm^2, up to 0.312 mm deep, at (  22.38, -100.37) 0.80 x 1.75
+bottom L:      0.151 mm^3,  1.038 mm^2, up to 0.306 mm deep, at (  25.93,  -99.75) 0.80 x 1.80
+bottom L: added: 582.298 mm^3 in total (columns differing by more than 0.005 mm); 37 spots over 0.05 mm^3
+bottom L:     77.524 mm^3, 73.725 mm^2, up to 5.150 mm deep, at (  92.47, -106.52) 26.05 x 3.25
+bottom L:     73.076 mm^3, 195.095 mm^2, up to 4.341 mm deep, at (  27.27, -107.85) 19.35 x 22.75
+bottom L:     52.710 mm^3, 14.208 mm^2, up to 15.350 mm deep, at ( 122.11,  -48.11) 46.50 x 1.85
+bottom L:     44.175 mm^3, 21.018 mm^2, up to 15.600 mm deep, at (  55.07,  -48.36) 44.50 x 2.55
+bottom L:     44.086 mm^3, 68.297 mm^2, up to 0.646 mm deep, at ( 123.57,  -77.57) 13.95 x 7.95
+bottom L:     44.068 mm^3, 68.270 mm^2, up to 0.646 mm deep, at ( 123.57,  -94.57) 13.95 x 7.90
+bottom L:     44.068 mm^3, 68.270 mm^2, up to 0.646 mm deep, at (  87.57,  -83.41) 13.95 x 7.90
+bottom L:     44.055 mm^3, 68.250 mm^2, up to 0.646 mm deep, at ( 105.58,  -74.80) 13.95 x 7.95
+bottom L:     43.996 mm^3, 68.158 mm^2, up to 0.646 mm deep, at ( 105.58,  -91.80) 13.95 x 7.90
+bottom L:     36.940 mm^3, 57.227 mm^2, up to 0.646 mm deep, at (  87.09,  -48.85) 13.95 x 6.05
+bottom L:     11.777 mm^3,  4.475 mm^2, up to 5.900 mm deep, at (  29.42,  -70.77) 2.10 x 4.10
+bottom L:     10.073 mm^3, 15.605 mm^2, up to 0.646 mm deep, at ( 144.42, -128.00) 4.65 x 5.20
+bottom L:      9.800 mm^3, 15.183 mm^2, up to 0.646 mm deep, at (  64.60,  -57.06) 12.10 x 2.45
+bottom L:      7.925 mm^3, 12.278 mm^2, up to 0.646 mm deep, at (  89.84,  -69.14) 6.00 x 2.25
+bottom L:      6.130 mm^3, 12.235 mm^2, up to 0.854 mm deep, at (  92.08,  -46.01) 8.05 x 3.00
+bottom L:      4.264 mm^3,  6.605 mm^2, up to 0.646 mm deep, at (  81.96,  -65.29) 2.85 x 2.75
+bottom L:      3.337 mm^3,  0.693 mm^2, up to 5.600 mm deep, at ( 132.47, -137.81) 6.85 x 3.95
+bottom L:      1.777 mm^3,  2.753 mm^2, up to 0.646 mm deep, at (  39.46,  -74.68) 1.25 x 2.80
+bottom L:      1.003 mm^3,  0.205 mm^2, up to 5.600 mm deep, at ( 125.79, -134.18) 2.60 x 1.25
+bottom L:      0.646 mm^3,  0.553 mm^2, up to 2.004 mm deep, at (  96.64,  -50.66) 1.10 x 1.60
+top R: volume old 17732.61 new 17580.07
+top R: removed: 219.045 mm^3 in total (columns differing by more than 0.005 mm); 26 spots over 0.05 mm^3
+top R:     60.433 mm^3, 11.410 mm^2, up to 7.835 mm deep, at ( 185.33,  -56.66) 12.40 x 1.40
+top R:     36.215 mm^3, 10.073 mm^2, up to 7.835 mm deep, at ( 258.31,  -70.34) 8.70 x 2.50
 top R:     26.235 mm^3,  3.830 mm^2, up to 6.850 mm deep, at ( 240.36,  -55.37) 5.50 x 1.15
-top R:     18.513 mm^3, 27.243 mm^2, up to 0.692 mm deep, at ( 261.31,  -48.15) 28.00 x 2.00
+top R:     21.511 mm^3, 15.530 mm^2, up to 4.050 mm deep, at ( 241.58,  -48.48) 12.55 x 1.50
 top R:     15.960 mm^3,  2.330 mm^2, up to 6.850 mm deep, at ( 247.15, -119.81) 1.60 x 3.20
-top R:     13.067 mm^3,  1.905 mm^2, up to 10.500 mm deep, at ( 162.92, -120.70) 2.30 x 1.85
-top R:     12.241 mm^3, 24.478 mm^2, up to 1.485 mm deep, at ( 216.52,  -97.55) 11.90 x 7.15
-top R:     10.526 mm^3, 15.038 mm^2, up to 0.700 mm deep, at ( 198.32,  -48.09) 16.80 x 0.90
-top R:      8.925 mm^3, 13.047 mm^2, up to 0.700 mm deep, at ( 172.72,  -48.12) 15.00 x 1.50
-top R:      7.026 mm^3, 12.770 mm^2, up to 0.985 mm deep, at ( 274.02,  -99.97) 9.15 x 3.25
-top R:      0.066 mm^3,  0.015 mm^2, up to 5.150 mm deep, at ( 207.92, -128.11) 0.30 x 0.05
-bottom R: volume old 69729.95 new 70179.10
-bottom R: removed: 19.702 mm^3 in total (columns differing by more than 0.005 mm); 29 spots over 0.05 mm^3
-bottom R:      5.970 mm^3,  0.795 mm^2, up to 13.195 mm deep, at ( 279.20,  -59.59) 0.05 x 15.90
-bottom R:      2.797 mm^3,  3.388 mm^2, up to 5.450 mm deep, at ( 174.39,  -47.87) 13.30 x 0.70
-bottom R:      0.700 mm^3,  0.198 mm^2, up to 9.700 mm deep, at ( 189.65, -131.36) 3.20 x 1.00
-bottom R:      0.383 mm^3,  0.068 mm^2, up to 7.200 mm deep, at ( 208.30, -128.11) 1.35 x 0.05
-bottom R:      0.348 mm^3,  0.683 mm^2, up to 0.691 mm deep, at ( 274.90,  -47.90) 2.65 x 1.10
-bottom R:      0.271 mm^3,  0.038 mm^2, up to 9.200 mm deep, at ( 185.85, -132.64) 0.75 x 0.30
-bottom R:      0.235 mm^3,  0.338 mm^2, up to 0.700 mm deep, at ( 192.16,  -47.84) 1.30 x 0.45
-bottom R:      0.225 mm^3,  0.365 mm^2, up to 0.700 mm deep, at ( 203.14,  -47.82) 1.80 x 0.45
-bottom R:      0.206 mm^3,  0.298 mm^2, up to 0.700 mm deep, at ( 194.78,  -47.84) 1.20 x 0.45
-bottom R:      0.196 mm^3,  0.068 mm^2, up to 2.910 mm deep, at ( 279.04,  -69.22) 0.45 x 0.50
-bottom R:      0.190 mm^3,  0.338 mm^2, up to 0.700 mm deep, at ( 200.47,  -47.84) 1.45 x 0.45
-bottom R:      0.186 mm^3,  0.458 mm^2, up to 5.450 mm deep, at ( 205.83,  -47.83) 1.80 x 0.45
-bottom R:      0.174 mm^3,  0.260 mm^2, up to 0.700 mm deep, at ( 197.61,  -47.84) 1.10 x 0.45
-bottom R:      0.168 mm^3,  0.358 mm^2, up to 0.691 mm deep, at ( 256.41,  -47.81) 1.85 x 0.35
-bottom R:      0.147 mm^3,  0.050 mm^2, up to 3.010 mm deep, at ( 164.88,  -48.89) 0.10 x 0.55
-bottom R:      0.142 mm^3,  0.230 mm^2, up to 0.691 mm deep, at ( 267.61,  -47.81) 1.20 x 0.40
-bottom R:      0.138 mm^3,  0.248 mm^2, up to 0.691 mm deep, at ( 264.69,  -47.81) 1.25 x 0.35
-bottom R:      0.137 mm^3,  0.218 mm^2, up to 0.691 mm deep, at ( 270.50,  -47.79) 1.30 x 0.30
-bottom R:      0.130 mm^3,  0.245 mm^2, up to 2.910 mm deep, at ( 279.02,  -49.83) 0.55 x 0.80
-bottom R:      0.124 mm^3,  0.018 mm^2, up to 9.200 mm deep, at ( 186.45, -132.41) 0.35 x 0.15
-bottom R: added: 474.817 mm^3 in total (columns differing by more than 0.005 mm); 9 spots over 0.05 mm^3
-bottom R:    131.970 mm^3, 14.398 mm^2, up to 10.850 mm deep, at ( 168.46, -112.00) 4.25 x 4.30
-bottom R:    131.945 mm^3, 14.398 mm^2, up to 10.850 mm deep, at ( 250.96,  -52.70) 4.25 x 4.30
-bottom R:    131.943 mm^3, 14.398 mm^2, up to 10.874 mm deep, at ( 273.66, -121.00) 4.25 x 4.30
-bottom R:     73.594 mm^3, 12.388 mm^2, up to 6.774 mm deep, at ( 176.76,  -52.70) 4.30 x 4.30
-bottom R:      3.238 mm^3,  7.317 mm^2, up to 0.800 mm deep, at ( 286.19, -106.45) 2.70 x 5.80
-bottom R:      0.944 mm^3,  0.100 mm^2, up to 9.700 mm deep, at ( 209.43,  -47.66) 2.00 x 0.05
-bottom R:      0.247 mm^3,  0.965 mm^2, up to 0.755 mm deep, at ( 177.21, -136.79) 10.15 x 5.65
-bottom R:      0.140 mm^3,  0.013 mm^2, up to 14.998 mm deep, at ( 165.70,  -47.66) 0.25 x 0.05
-bottom R:      0.122 mm^3,  0.023 mm^2, up to 5.555 mm deep, at ( 179.45,  -47.66) 0.45 x 0.05
+top R:     12.749 mm^3,  1.863 mm^2, up to 12.000 mm deep, at ( 162.94, -120.70) 2.30 x 1.85
+top R:     12.250 mm^3, 24.478 mm^2, up to 1.485 mm deep, at ( 216.52,  -97.55) 11.90 x 7.15
+top R:      7.059 mm^3, 12.775 mm^2, up to 1.100 mm deep, at ( 274.02,  -99.97) 9.15 x 3.25
+top R:      6.392 mm^3,  5.273 mm^2, up to 6.100 mm deep, at ( 278.38,  -71.01) 1.85 x 3.60
+top R:      5.182 mm^3,  4.615 mm^2, up to 5.850 mm deep, at ( 165.43,  -48.41) 3.10 x 1.80
+top R:      3.866 mm^3,  6.070 mm^2, up to 2.150 mm deep, at ( 277.45,  -48.62) 4.00 x 2.50
+top R:      2.016 mm^3,  4.798 mm^2, up to 5.650 mm deep, at ( 208.02,  -48.38) 3.40 x 1.50
+top R:      1.118 mm^3,  0.973 mm^2, up to 1.150 mm deep, at ( 209.93, -126.83) 3.05 x 0.50
+top R:      0.779 mm^3,  0.678 mm^2, up to 1.150 mm deep, at ( 163.31, -133.69) 1.15 x 1.90
+top R:      0.690 mm^3,  0.600 mm^2, up to 1.150 mm deep, at ( 191.96, -129.27) 2.45 x 0.75
+top R:      0.529 mm^3,  0.410 mm^2, up to 6.850 mm deep, at ( 286.06, -112.95) 0.50 x 1.65
+top R:      0.515 mm^3,  0.448 mm^2, up to 1.150 mm deep, at ( 176.39, -135.76) 1.40 x 0.85
+top R:      0.407 mm^3,  0.268 mm^2, up to 6.850 mm deep, at ( 285.53, -115.54) 0.45 x 1.90
+top R:      0.380 mm^3,  1.740 mm^2, up to 2.280 mm deep, at ( 180.83,  -48.09) 3.75 x 1.55
+top R:      0.322 mm^3,  0.280 mm^2, up to 1.150 mm deep, at ( 174.43, -136.83) 1.30 x 0.80
+top R: added: 63.467 mm^3 in total (columns differing by more than 0.005 mm); 35 spots over 0.05 mm^3
+top R:     11.832 mm^3,  4.150 mm^2, up to 3.650 mm deep, at ( 276.60, -123.97) 2.35 x 2.30
+top R:     11.003 mm^3,  4.315 mm^2, up to 2.550 mm deep, at ( 278.98,  -59.60) 0.50 x 9.40
+top R:      6.869 mm^3,  2.995 mm^2, up to 4.650 mm deep, at ( 184.97,  -47.89) 7.70 x 0.60
+top R:      5.189 mm^3,  0.758 mm^2, up to 6.850 mm deep, at ( 250.36, -124.16) 1.10 x 2.05
+top R:      2.911 mm^3,  0.425 mm^2, up to 6.850 mm deep, at ( 221.03, -127.22) 1.65 x 1.50
+top R:      2.743 mm^3,  3.443 mm^2, up to 6.850 mm deep, at ( 176.57,  -49.61) 5.50 x 1.55
+top R:      1.835 mm^3,  2.823 mm^2, up to 0.650 mm deep, at ( 242.91,  -47.86) 7.20 x 0.50
+top R:      1.602 mm^3,  1.188 mm^2, up to 6.850 mm deep, at ( 275.52,  -48.60) 3.35 x 1.65
+top R:      1.284 mm^3,  0.188 mm^2, up to 6.850 mm deep, at ( 156.64, -124.16) 0.55 x 1.10
+top R:      1.280 mm^3,  0.185 mm^2, up to 12.000 mm deep, at ( 167.11, -142.32) 1.10 x 0.55
+top R:      1.194 mm^3, 11.938 mm^2, up to 0.100 mm deep, at ( 168.46, -112.00) 4.65 x 4.60
+top R:      1.179 mm^3, 11.780 mm^2, up to 0.550 mm deep, at ( 273.62, -121.01) 4.55 x 4.75
+top R:      1.144 mm^3,  1.635 mm^2, up to 0.700 mm deep, at ( 190.63,  -48.40) 1.20 x 1.50
+top R:      1.137 mm^3,  1.818 mm^2, up to 6.850 mm deep, at ( 248.60,  -48.61) 1.25 x 2.95
+top R:      1.090 mm^3, 10.900 mm^2, up to 0.100 mm deep, at ( 176.76,  -52.88) 4.60 x 4.45
+top R:      1.089 mm^3, 10.890 mm^2, up to 0.100 mm deep, at ( 250.96,  -52.88) 4.60 x 4.45
+top R:      1.058 mm^3,  0.615 mm^2, up to 6.850 mm deep, at ( 277.04,  -71.64) 1.10 x 1.05
+top R:      1.020 mm^3,  1.458 mm^2, up to 0.700 mm deep, at ( 167.58,  -48.40) 1.10 x 1.50
+top R:      0.824 mm^3,  1.177 mm^2, up to 0.700 mm deep, at ( 205.87,  -48.37) 0.90 x 1.50
+top R:      0.797 mm^3,  1.105 mm^2, up to 5.550 mm deep, at ( 179.15,  -48.45) 0.90 x 1.80
+bottom R: volume old 70187.04 new 70755.72
+bottom R: removed: 43.357 mm^3 in total (columns differing by more than 0.005 mm); 40 spots over 0.05 mm^3
+bottom R:      3.960 mm^3,  0.448 mm^2, up to 8.850 mm deep, at ( 232.16,  -58.41) 1.55 x 1.65
+bottom R:      3.938 mm^3,  0.445 mm^2, up to 8.850 mm deep, at ( 267.54,  -58.35) 1.55 x 1.60
+bottom R:      3.552 mm^3,  0.463 mm^2, up to 8.850 mm deep, at ( 267.51, -114.65) 1.60 x 1.60
+bottom R:      3.274 mm^3,  0.370 mm^2, up to 8.850 mm deep, at ( 228.27, -114.67) 1.60 x 1.50
+bottom R:      3.224 mm^3,  0.355 mm^2, up to 9.200 mm deep, at ( 196.73, -129.50) 5.15 x 1.15
+bottom R:      3.208 mm^3,  0.363 mm^2, up to 8.850 mm deep, at ( 228.23, -103.35) 1.55 x 1.60
+bottom R:      2.823 mm^3, 17.865 mm^2, up to 0.309 mm deep, at ( 279.62, -109.66) 0.80 x 23.35
+bottom R:      2.645 mm^3,  0.645 mm^2, up to 4.100 mm deep, at ( 183.40, -132.71) 1.10 x 1.20
+bottom R:      2.450 mm^3,  0.598 mm^2, up to 4.100 mm deep, at ( 166.07,  -48.44) 0.55 x 1.50
+bottom R:      2.440 mm^3,  0.595 mm^2, up to 4.100 mm deep, at ( 179.58,  -48.45) 0.55 x 1.50
+bottom R:      2.337 mm^3,  0.570 mm^2, up to 4.100 mm deep, at ( 171.53, -139.18) 0.70 x 1.45
+bottom R:      1.679 mm^3,  0.183 mm^2, up to 9.200 mm deep, at ( 202.81, -128.45) 3.05 x 0.35
+bottom R:      1.131 mm^3,  8.335 mm^2, up to 0.322 mm deep, at ( 287.80, -105.47) 1.25 x 12.40
+bottom R:      0.945 mm^3,  6.645 mm^2, up to 0.317 mm deep, at ( 286.65, -113.25) 0.85 x 10.60
+bottom R:      0.709 mm^3,  4.388 mm^2, up to 0.312 mm deep, at ( 285.51, -118.71) 0.80 x 6.00
+bottom R:      0.579 mm^3,  1.285 mm^2, up to 0.505 mm deep, at ( 242.28,  -48.86) 6.60 x 0.90
+bottom R:      0.517 mm^3,  3.993 mm^2, up to 0.317 mm deep, at ( 288.71, -102.96) 0.85 x 7.15
+bottom R:      0.216 mm^3,  0.045 mm^2, up to 4.795 mm deep, at ( 171.98, -139.86) 0.55 x 0.35
+bottom R:      0.204 mm^3,  0.043 mm^2, up to 4.795 mm deep, at ( 183.77, -133.49) 0.50 x 0.25
+bottom R:      0.199 mm^3,  0.288 mm^2, up to 0.691 mm deep, at ( 247.75,  -48.22) 0.30 x 1.20
+bottom R: added: 630.029 mm^3 in total (columns differing by more than 0.005 mm); 33 spots over 0.05 mm^3
+bottom R:     76.248 mm^3, 168.843 mm^2, up to 4.351 mm deep, at ( 282.14, -108.35) 14.50 x 22.70
+bottom R:     72.077 mm^3, 68.483 mm^2, up to 5.150 mm deep, at ( 216.37, -106.58) 26.05 x 3.25
+bottom R:     51.948 mm^3, 14.273 mm^2, up to 15.350 mm deep, at ( 185.69,  -48.11) 46.55 x 1.85
+bottom R:     44.329 mm^3, 21.283 mm^2, up to 15.600 mm deep, at ( 253.24,  -48.37) 44.45 x 2.55
+bottom R:     44.088 mm^3, 68.300 mm^2, up to 0.646 mm deep, at ( 207.23,  -74.86) 13.95 x 7.90
+bottom R:     44.083 mm^3, 68.293 mm^2, up to 0.646 mm deep, at ( 225.23,  -49.36) 13.95 x 7.90
+bottom R:     44.015 mm^3, 68.188 mm^2, up to 0.646 mm deep, at ( 189.23,  -94.60) 13.95 x 7.90
+bottom R:     43.997 mm^3, 68.160 mm^2, up to 0.646 mm deep, at ( 207.22,  -91.86) 13.95 x 7.90
+bottom R:     43.996 mm^3, 68.158 mm^2, up to 0.646 mm deep, at ( 189.23,  -77.60) 13.95 x 7.90
+bottom R:     43.883 mm^3, 67.983 mm^2, up to 0.646 mm deep, at ( 225.19,  -83.41) 13.65 x 7.90
+bottom R:     25.392 mm^3, 39.338 mm^2, up to 0.646 mm deep, at ( 227.59,  -67.42) 8.60 x 5.85
+bottom R:     16.925 mm^3, 26.220 mm^2, up to 0.646 mm deep, at ( 215.43, -114.20) 7.75 x 4.90
+bottom R:     16.839 mm^3, 26.088 mm^2, up to 0.646 mm deep, at ( 270.24,  -77.27) 5.70 x 6.20
+bottom R:     11.664 mm^3,  4.505 mm^2, up to 5.900 mm deep, at ( 278.42,  -70.79) 2.10 x 4.15
+bottom R:      8.863 mm^3, 13.730 mm^2, up to 0.646 mm deep, at ( 243.33,  -56.97) 7.70 x 2.45
+bottom R:      6.128 mm^3, 12.230 mm^2, up to 0.854 mm deep, at ( 229.67,  -46.01) 8.05 x 3.00
+bottom R:      5.919 mm^3,  9.170 mm^2, up to 0.646 mm deep, at ( 268.94,  -94.19) 2.70 x 5.45
+bottom R:      5.641 mm^3,  1.158 mm^2, up to 5.600 mm deep, at ( 177.60, -136.58) 10.95 x 6.00
+bottom R:      4.713 mm^3,  0.378 mm^2, up to 12.485 mm deep, at ( 279.20,  -59.61) 0.05 x 7.55
+bottom R:      0.666 mm^3,  0.570 mm^2, up to 2.004 mm deep, at ( 234.21,  -50.69) 1.10 x 1.50
 ```
 
 ## Solid checks
@@ -186,8 +235,8 @@ bottom R:      0.122 mm^3,  0.023 mm^2, up to 5.555 mm deep, at ( 179.45,  -47.6
 ```
 TOTEM_alu_top_L valid True solids 1 shells 1 closed True analyzer: {}
 TOTEM_alu_top_R valid True solids 1 shells 1 closed True analyzer: {}
-TOTEM_alu_bottom_L valid True solids 1 shells 1 closed True analyzer: {}
-TOTEM_alu_bottom_R valid True solids 1 shells 1 closed True analyzer: {}
+TOTEM_alu_bottom_L valid True solids 1 shells 1 closed True analyzer: {'BOPAlgo_InvalidCurveOnSurface': 1}
+TOTEM_alu_bottom_R valid True solids 1 shells 1 closed True analyzer: {'BOPAlgo_InvalidCurveOnSurface': 1}
 TOTEM_wood_window_insert_L valid True solids 1 shells 1 closed True analyzer: {}
 TOTEM_wood_window_insert_R valid True solids 1 shells 1 closed True analyzer: {}
 ```
@@ -202,18 +251,16 @@ through into the leg recesses
 (see `underside_holes.png`):
 
 ```
-new L through-openings: 1
-  ( 131.20,  -52.64)  1.50x 1.50 area   1.9  underside around: -7.30..-7.30
-new R through-openings: 1
-  ( 176.78,  -52.70)  1.50x 1.75 area   2.0  underside around: -7.30..-7.30
+new L through-openings: 0
+new R through-openings: 0
 ```
 
 ## Thin walls compared with the original
 
-- L top: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
+- L top: (87.1,-96.8) 0.52 mm (new); (93.2,-98.1) 0.52 mm (new); (49.4,-69.9) 0.52 mm (new)
 - L bottom: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
-- R top: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
-- R bottom: no new or thinner spots (clusters of 5+ samples, 0.25 mm grid)
+- R top: (258.4,-69.9) 0.52 mm (new); (221.0,-96.8) 0.52 mm (new); (214.8,-98.0) 0.52 mm (new)
+- R bottom: (287.2,-105.3) 0.65 mm (new)
 
 ## Walls thinner than 0.8 mm
 
@@ -223,146 +270,207 @@ largest distance to the outline). Thin layers in z (floors, roofs) are listed be
 `thin.py` (0.25 mm grid, all spots under 0.8 mm, screw-hole rings included):
 
 ```
-../outputs/TOTEM_alu_top_L.step: 18 walls thinner than 0.8 mm
-  0.06 mm at (  58.21, -50.38) z   1.700..  2.150,  0.006 mm^2 in plan, 0.10 x 0.12
-  0.12 mm at (  29.36, -47.91) z   3.100..  3.200,  0.008 mm^2 in plan, 0.13 x 0.16
-  0.17 mm at (  86.36, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.37 x 0.19
-  0.17 mm at (  91.36, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.37 x 0.19
-  0.18 mm at (  87.78, -96.31) z   2.150..  2.450,  0.031 mm^2 in plan, 0.37 x 0.19
-  0.30 mm at (  30.35, -47.81) z   2.350..  3.100,  0.110 mm^2 in plan, 0.61 x 0.33
-  0.31 mm at (  34.15,-100.36) z   2.150..  2.450,  0.986 mm^2 in plan, 6.13 x 1.25
-  0.31 mm at (  94.99, -99.08) z   2.150..  2.450,  0.276 mm^2 in plan, 0.33 x 1.41
-  0.35 mm at (  83.87, -43.68) z  -1.500..  1.600,  0.308 mm^2 in plan, 1.34 x 0.36
-  0.38 mm at ( 142.08, -48.34) z   3.450..  4.150,  0.234 mm^2 in plan, 0.60 x 0.56
-  0.39 mm at (  27.84, -98.93) z  -1.500..  1.600,  0.185 mm^2 in plan, 0.71 x 0.53
-  0.41 mm at (  57.01, -51.31) z   1.700..  2.150,  0.194 mm^2 in plan, 0.54 x 0.44
-  0.41 mm at ( 131.21, -51.31) z   1.700..  2.150,  0.194 mm^2 in plan, 0.54 x 0.44
-  0.41 mm at ( 126.02, -47.95) z   4.150..  5.150,  0.837 mm^2 in plan, 2.87 x 0.59
-  0.42 mm at ( 123.00, -47.95) z   4.150..  6.430,  3.599 mm^2 in plan, 9.13 x 0.59
-  0.54 mm at (  65.15, -48.79) z   3.700..  5.150,  3.193 mm^2 in plan, 5.30 x 0.70
-  0.60 mm at ( 148.66,-128.82) z  -1.500..  2.150,  0.146 mm^2 in plan, 0.70 x 0.61
-  0.60 mm at ( 147.24,-131.25) z  -1.500..  2.150,  0.154 mm^2 in plan, 0.71 x 0.62
-../outputs/TOTEM_alu_bottom_L.step: 44 walls thinner than 0.8 mm
-  0.07 mm at (  92.98,-101.08) z  -1.500.. -0.550,  0.006 mm^2 in plan, 0.09 x 0.16
-  0.11 mm at (  65.39, -52.10) z  -1.500.. -0.550,  0.011 mm^2 in plan, 0.12 x 0.24
-  0.11 mm at (  89.01, -97.98) z  -1.500.. -0.550,  0.066 mm^2 in plan, 0.79 x 0.38
-  0.11 mm at ( 143.23, -49.40) z  -0.550.. -0.500,  0.010 mm^2 in plan, 0.12 x 0.18
-  0.11 mm at (  71.18, -47.79) z  -0.400..  1.250,  0.038 mm^2 in plan, 0.43 x 0.26
-  0.11 mm at (  65.09, -50.64) z  -1.500.. -0.550,  0.017 mm^2 in plan, 0.14 x 0.22
-  0.12 mm at (  99.36, -47.90) z  -0.400..  3.250,  0.079 mm^2 in plan, 0.65 x 0.47
-  0.13 mm at (  28.79, -71.16) z   2.660..  3.598,  0.073 mm^2 in plan, 0.36 x 0.48
-  0.13 mm at (  95.13, -48.98) z  -2.554.. -1.700,  0.021 mm^2 in plan, 0.20 x 0.26
-  0.13 mm at ( 132.01, -52.24) z  -0.550.. -0.500,  0.200 mm^2 in plan, 1.54 x 1.05
-  0.15 mm at (  39.42, -62.26) z  -0.550.. -0.500,  0.073 mm^2 in plan, 0.74 x 0.18
-  0.16 mm at (  29.08, -69.26) z   1.085..  3.995,  0.025 mm^2 in plan, 0.26 x 0.26
-  0.16 mm at ( 101.03, -48.08) z   3.050..  3.250,  0.084 mm^2 in plan, 0.52 x 0.59
-  0.19 mm at ( 139.38,-111.14) z  -0.550.. -0.500,  0.125 mm^2 in plan, 0.87 x 0.26
-  0.19 mm at ( 139.25,-112.82) z  -0.550.. -0.500,  0.135 mm^2 in plan, 0.91 x 0.33
-  0.22 mm at (  30.75, -49.07) z   1.950..  2.150,  0.033 mm^2 in plan, 0.25 x 0.29
-  0.23 mm at (  39.89, -69.76) z  -2.554.. -1.500,  0.033 mm^2 in plan, 0.27 x 0.23
-  0.24 mm at (  29.08, -49.31) z   2.660..  3.995,  1.072 mm^2 in plan, 1.49 x 1.74
-  0.33 mm at (  83.87, -43.68) z  -2.554.. -1.700,  0.297 mm^2 in plan, 1.36 x 0.34
-  0.38 mm at (  27.84, -98.93) z  -2.554.. -1.700,  0.188 mm^2 in plan, 0.72 x 0.53
-  0.39 mm at ( 123.00, -47.95) z  -1.500..  3.750,  4.902 mm^2 in plan, 9.98 x 0.58
-  0.39 mm at (  39.86,-103.72) z  -3.200.. -2.554,  0.460 mm^2 in plan, 0.40 x 1.90
-  0.40 mm at ( 100.43, -48.64) z   3.598..  3.750,  0.313 mm^2 in plan, 0.57 x 0.95
-  0.42 mm at (  65.16, -48.71) z  -0.500..  0.635,  3.097 mm^2 in plan, 6.71 x 0.79
-  0.42 mm at (  30.03, -49.70) z   2.660..  3.050,  0.137 mm^2 in plan, 0.34 x 0.75
-  0.48 mm at (  39.88,-112.75) z  -2.554.. -0.550,  0.615 mm^2 in plan, 0.51 x 2.61
-  0.49 mm at ( 141.40, -48.04) z   3.598..  3.750,  0.328 mm^2 in plan, 0.66 x 0.80
-  0.55 mm at ( 132.32,-135.27) z  -1.700.. -0.550,  0.448 mm^2 in plan, 1.42 x 1.27
-  0.55 mm at (  70.05, -48.53) z   0.635..  1.950,  1.132 mm^2 in plan, 1.77 x 1.18
-  0.56 mm at ( 121.87, -55.69) z  -1.500.. -0.550,  0.412 mm^2 in plan, 1.14 x 0.60
-  0.56 mm at ( 101.08,-108.52) z  -1.600.. -0.550,  0.476 mm^2 in plan, 1.70 x 0.60
-  0.56 mm at ( 116.36,-128.55) z  -1.700.. -0.550,  0.520 mm^2 in plan, 1.78 x 1.09
-  0.56 mm at (  98.23,-125.81) z  -1.700.. -0.550,  0.475 mm^2 in plan, 1.73 x 0.61
-  0.56 mm at (  22.45,-111.95) z  -1.700.. -0.550,  0.476 mm^2 in plan, 0.61 x 1.67
-  0.56 mm at (  76.15, -89.24) z  -2.554.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.70
-  0.56 mm at (  76.15, -72.24) z  -2.554.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.69
-  0.56 mm at ( 102.18,-104.68) z  -1.600.. -0.550,  0.475 mm^2 in plan, 1.70 x 0.60
-  0.56 mm at ( 143.31,-134.12) z  -1.700.. -0.550,  0.476 mm^2 in plan, 1.31 x 1.47
-  0.57 mm at ( 143.96,-122.14) z  -1.700.. -0.550,  0.649 mm^2 in plan, 1.80 x 1.85
-  0.57 mm at ( 125.41,-125.85) z  -2.554.. -0.550,  0.222 mm^2 in plan, 0.75 x 0.73
-  0.77 mm at (  60.65, -48.26) z   1.250..  1.950,  0.804 mm^2 in plan, 0.96 x 1.20
-  0.78 mm at ( 112.96, -97.54) z  -2.554.. -0.550,  9.008 mm^2 in plan, 5.13 x 11.52
-  0.78 mm at ( 112.96, -80.54) z  -2.554.. -0.550,  9.013 mm^2 in plan, 5.13 x 11.52
-  0.78 mm at ( 113.05, -63.31) z  -2.554.. -0.550,  9.015 mm^2 in plan, 5.13 x 11.52
-../outputs/TOTEM_alu_top_R.step: 17 walls thinner than 0.8 mm
-  0.08 mm at ( 277.77, -69.12) z   4.395..  6.430,  0.006 mm^2 in plan, 0.09 x 0.13
-  0.09 mm at ( 278.50, -47.91) z   3.100..  3.200,  0.007 mm^2 in plan, 0.12 x 0.15
-  0.17 mm at ( 221.70, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.37 x 0.19
-  0.17 mm at ( 216.70, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.37 x 0.19
-  0.17 mm at ( 220.26, -96.32) z   2.150..  2.450,  0.030 mm^2 in plan, 0.37 x 0.19
-  0.24 mm at ( 165.96, -48.37) z   3.650..  4.150,  0.097 mm^2 in plan, 0.45 x 0.27
-  0.29 mm at ( 277.52, -47.81) z   2.341..  3.100,  0.111 mm^2 in plan, 0.61 x 0.33
-  0.33 mm at ( 273.73,-100.36) z   2.150..  2.450,  1.144 mm^2 in plan, 6.20 x 1.28
-  0.34 mm at ( 221.45, -43.67) z  -1.500..  1.600,  0.301 mm^2 in plan, 1.35 x 0.35
-  0.40 mm at ( 212.89, -98.97) z   2.150..  2.450,  0.345 mm^2 in plan, 0.42 x 1.14
-  0.41 mm at ( 187.97, -47.95) z   4.150..  5.150,  0.833 mm^2 in plan, 2.87 x 0.59
-  0.41 mm at ( 176.77, -51.31) z   1.700..  2.150,  0.194 mm^2 in plan, 0.54 x 0.44
-  0.41 mm at ( 250.98, -51.31) z   1.700..  2.150,  0.195 mm^2 in plan, 0.54 x 0.44
-  0.42 mm at ( 184.96, -47.95) z   4.150..  6.430,  3.600 mm^2 in plan, 9.14 x 0.59
-  0.54 mm at ( 242.91, -48.79) z   3.700..  5.150,  3.193 mm^2 in plan, 5.30 x 0.70
-  0.62 mm at ( 288.46,-105.96) z  -1.500..  2.150,  0.120 mm^2 in plan, 0.67 x 0.41
+../outputs/TOTEM_alu_top_L.step: 43 walls thinner than 0.8 mm
+  0.02 mm at (  30.16, -70.46) z   4.400..  4.600,  0.005 mm^2 in plan, 0.08 x 0.33
+  0.07 mm at (  98.69, -49.10) z   4.150..  4.350,  0.006 mm^2 in plan, 0.13 x 0.10
+  0.07 mm at (  30.07, -72.46) z  -0.350..  2.150,  0.006 mm^2 in plan, 0.10 x 0.14
+  0.08 mm at ( 141.06, -49.11) z   4.150..  4.350,  0.008 mm^2 in plan, 0.16 x 0.10
+  0.08 mm at ( 117.95, -49.11) z   3.450..  4.350,  0.007 mm^2 in plan, 0.13 x 0.10
+  0.08 mm at ( 101.31, -49.11) z   4.150..  4.350,  0.008 mm^2 in plan, 0.15 x 0.10
+  0.08 mm at (  28.68, -72.46) z  -1.500..  4.400,  0.007 mm^2 in plan, 0.10 x 0.15
+  0.08 mm at (  71.91, -49.11) z   2.350..  2.550,  0.008 mm^2 in plan, 0.16 x 0.10
+  0.09 mm at (  30.45, -71.07) z   4.400..  4.600,  0.010 mm^2 in plan, 0.16 x 0.22
+  0.10 mm at ( 128.83, -49.67) z   2.150..  2.860,  0.010 mm^2 in plan, 0.16 x 0.13
+  0.10 mm at (  28.68, -69.08) z   4.600..  6.430,  0.009 mm^2 in plan, 0.18 x 0.11
+  0.10 mm at (  30.25, -47.71) z   4.400..  4.600,  0.008 mm^2 in plan, 0.16 x 0.11
+  0.10 mm at (  32.21, -49.06) z   2.350..  2.550,  0.011 mm^2 in plan, 0.21 x 0.18
+  0.10 mm at (  30.60, -47.72) z   2.550..  4.400,  0.010 mm^2 in plan, 0.18 x 0.12
+  0.10 mm at (  32.50, -47.71) z   1.650..  2.350,  0.007 mm^2 in plan, 0.11 x 0.11
+  0.12 mm at (  28.68, -50.13) z   4.600..  6.430,  0.009 mm^2 in plan, 0.18 x 0.11
+  0.14 mm at ( 143.81, -47.74) z  -1.500..  4.150,  0.020 mm^2 in plan, 0.23 x 0.17
+  0.18 mm at (  87.78, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.36 x 0.19
+  0.18 mm at (  91.35, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.36 x 0.19
+  0.18 mm at (  86.35, -96.31) z   2.150..  2.450,  0.030 mm^2 in plan, 0.36 x 0.19
+  0.22 mm at (  52.36, -69.07) z   3.650..  6.430,  0.051 mm^2 in plan, 0.54 x 0.30
+  0.23 mm at ( 141.10,-142.14) z   3.650.. 10.500,  0.191 mm^2 in plan, 1.43 x 0.73
+  0.23 mm at ( 151.31,-124.27) z   3.650.. 10.500,  0.186 mm^2 in plan, 0.73 x 1.43
+  0.23 mm at ( 145.38,-120.42) z   3.650.. 10.500,  0.065 mm^2 in plan, 0.68 x 0.54
+  0.23 mm at (  86.93,-127.51) z   3.650.. 10.500,  0.256 mm^2 in plan, 1.29 x 1.25
+  0.23 mm at (  30.26, -49.58) z   2.550..  4.600,  0.190 mm^2 in plan, 0.63 x 1.04
+  0.24 mm at ( 133.90, -49.29) z   3.295..  3.450,  0.061 mm^2 in plan, 0.73 x 0.24
+  0.31 mm at (  57.02, -51.36) z   1.600..  2.150,  0.141 mm^2 in plan, 0.50 x 0.34
+  0.31 mm at ( 131.22, -51.36) z   1.600..  2.150,  0.141 mm^2 in plan, 0.50 x 0.34
+  0.31 mm at (  34.19,-100.35) z   2.150..  2.450,  0.961 mm^2 in plan, 6.13 x 1.25
+  0.31 mm at (  59.89, -48.92) z   1.650..  2.150,  0.063 mm^2 in plan, 0.39 x 0.38
+  0.31 mm at (  94.99, -99.06) z   2.150..  2.450,  0.276 mm^2 in plan, 0.33 x 1.41
+  0.34 mm at (  83.87, -43.67) z  -1.500..  1.600,  0.301 mm^2 in plan, 1.35 x 0.35
+  0.39 mm at (  27.84, -98.92) z  -1.500..  1.600,  0.184 mm^2 in plan, 0.71 x 0.52
+  0.49 mm at ( 119.06, -55.90) z   3.650..  6.430,  0.322 mm^2 in plan, 0.88 x 0.52
+  0.57 mm at ( 123.00, -47.95) z   4.350..  6.430,  4.711 mm^2 in plan, 9.14 x 0.60
+  0.58 mm at ( 125.81, -47.95) z   4.350..  5.095,  1.186 mm^2 in plan, 2.87 x 0.59
+  0.60 mm at ( 148.66,-128.82) z  -1.500..  2.150,  0.145 mm^2 in plan, 0.70 x 0.61
+  0.60 mm at ( 147.24,-131.25) z  -1.500..  2.150,  0.152 mm^2 in plan, 0.71 x 0.62
+  0.68 mm at (  50.44, -69.27) z   3.650..  9.000,  1.413 mm^2 in plan, 3.24 x 0.92
+  0.68 mm at (  61.53,-119.81) z   3.650..  9.000,  0.433 mm^2 in plan, 0.71 x 0.88
+  0.74 mm at (  67.54, -54.68) z   3.650..  3.700,  1.444 mm^2 in plan, 2.85 x 0.76
+  0.77 mm at ( 123.93, -55.76) z   3.650..  6.430,  4.979 mm^2 in plan, 6.91 x 0.78
+../outputs/TOTEM_alu_bottom_L.step: 38 walls thinner than 0.8 mm
+  0.00 mm at ( 138.62, -47.66) z -11.400.. -7.300,  0.076 mm^2 in plan, 10.39 x 0.01
+  0.07 mm at (  92.98,-101.07) z  -1.500.. -0.550,  0.007 mm^2 in plan, 0.10 x 0.17
+  0.10 mm at (  28.68, -69.07) z   1.085..  4.200,  0.009 mm^2 in plan, 0.17 x 0.11
+  0.11 mm at (  65.40, -52.07) z  -1.500.. -0.550,  0.013 mm^2 in plan, 0.12 x 0.25
+  0.11 mm at (  60.90, -48.80) z   1.250..  2.150,  0.015 mm^2 in plan, 0.24 x 0.16
+  0.12 mm at (  89.02, -97.99) z  -1.500.. -0.550,  0.073 mm^2 in plan, 0.82 x 0.39
+  0.12 mm at (  68.94, -47.76) z   0.635..  1.350,  0.040 mm^2 in plan, 0.44 x 0.21
+  0.12 mm at (  28.68, -50.13) z   1.085..  4.200,  0.009 mm^2 in plan, 0.17 x 0.11
+  0.12 mm at (  65.09, -50.66) z  -1.500.. -0.550,  0.018 mm^2 in plan, 0.15 x 0.23
+  0.13 mm at (  95.12, -48.99) z  -2.554.. -1.710,  0.022 mm^2 in plan, 0.20 x 0.26
+  0.14 mm at (  61.36, -47.77) z   0.635..  1.850,  0.040 mm^2 in plan, 0.44 x 0.21
+  0.15 mm at (  60.32, -48.75) z   1.250..  2.150,  0.015 mm^2 in plan, 0.23 x 0.16
+  0.23 mm at (  39.89, -69.76) z  -2.554.. -1.710,  0.032 mm^2 in plan, 0.28 x 0.22
+  0.23 mm at (  39.89, -69.76) z  -1.700.. -1.500,  0.032 mm^2 in plan, 0.28 x 0.22
+  0.34 mm at (  83.87, -43.67) z  -2.554.. -1.710,  0.302 mm^2 in plan, 1.34 x 0.35
+  0.39 mm at (  27.84, -98.92) z  -2.554.. -1.710,  0.185 mm^2 in plan, 0.71 x 0.53
+  0.40 mm at (  39.91,-112.47) z  -2.554.. -1.710,  0.699 mm^2 in plan, 0.56 x 2.97
+  0.40 mm at (  39.91,-112.47) z  -1.700.. -0.550,  0.699 mm^2 in plan, 0.56 x 2.97
+  0.55 mm at ( 132.68,-135.55) z  -1.700.. -0.550,  0.441 mm^2 in plan, 1.40 x 1.24
+  0.55 mm at ( 143.96,-122.13) z  -1.700.. -0.550,  0.646 mm^2 in plan, 1.77 x 1.82
+  0.56 mm at ( 121.85, -55.69) z  -1.500.. -0.550,  0.406 mm^2 in plan, 1.12 x 0.60
+  0.56 mm at (  76.15, -89.26) z  -2.554.. -1.710,  0.475 mm^2 in plan, 0.60 x 1.69
+  0.56 mm at (  76.15, -89.26) z  -1.700.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.69
+  0.56 mm at (  76.15, -72.26) z  -2.554.. -1.710,  0.475 mm^2 in plan, 0.60 x 1.69
+  0.56 mm at (  76.15, -72.26) z  -1.700.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.69
+  0.56 mm at (  22.45,-111.97) z  -1.700.. -0.550,  0.475 mm^2 in plan, 0.61 x 1.67
+  0.56 mm at ( 143.33,-134.10) z  -1.700.. -0.550,  0.476 mm^2 in plan, 1.31 x 1.47
+  0.57 mm at ( 116.52,-128.64) z  -1.700.. -0.550,  0.557 mm^2 in plan, 1.84 x 1.13
+  0.58 mm at ( 125.39,-125.84) z  -1.700.. -0.550,  0.205 mm^2 in plan, 0.74 x 0.71
+  0.58 mm at ( 125.39,-125.84) z  -2.554.. -1.710,  0.205 mm^2 in plan, 0.74 x 0.71
+  0.58 mm at (  98.25,-125.82) z  -1.700.. -0.550,  0.519 mm^2 in plan, 1.81 x 0.64
+  0.58 mm at ( 127.86, -48.27) z  -1.500..  3.950,  5.311 mm^2 in plan, 9.94 x 1.22
+  0.79 mm at ( 112.96, -80.54) z  -2.554.. -1.710,  9.126 mm^2 in plan, 5.13 x 11.50
+  0.79 mm at ( 112.96, -80.54) z  -1.700.. -0.550,  9.126 mm^2 in plan, 5.13 x 11.50
+  0.79 mm at ( 112.96, -63.54) z  -2.554.. -1.710,  9.127 mm^2 in plan, 5.13 x 11.50
+  0.79 mm at ( 112.96, -63.54) z  -1.700.. -0.550,  9.127 mm^2 in plan, 5.13 x 11.50
+  0.79 mm at ( 112.96, -97.54) z  -2.554.. -1.710,  9.127 mm^2 in plan, 5.13 x 11.50
+  0.79 mm at ( 112.96, -97.54) z  -1.700.. -0.550,  9.127 mm^2 in plan, 5.13 x 11.50
+../outputs/TOTEM_alu_top_R.step: 50 walls thinner than 0.8 mm
+  0.07 mm at ( 277.22, -49.19) z   2.550..  4.400,  0.025 mm^2 in plan, 0.20 x 0.28
+  0.07 mm at ( 209.17, -49.10) z   4.150..  4.350,  0.006 mm^2 in plan, 0.13 x 0.09
+  0.07 mm at ( 277.37, -71.14) z   2.350..  4.600,  0.016 mm^2 in plan, 0.18 x 0.25
+  0.08 mm at ( 235.95, -49.11) z   2.350..  2.550,  0.008 mm^2 in plan, 0.15 x 0.10
+  0.08 mm at ( 166.81, -49.11) z   4.150..  4.350,  0.008 mm^2 in plan, 0.16 x 0.10
+  0.08 mm at ( 277.77, -69.12) z   4.600..  6.430,  0.006 mm^2 in plan, 0.09 x 0.14
+  0.08 mm at ( 206.56, -49.11) z   4.150..  4.350,  0.008 mm^2 in plan, 0.16 x 0.10
+  0.08 mm at ( 277.79, -72.47) z  -0.350..  2.150,  0.006 mm^2 in plan, 0.09 x 0.14
+  0.08 mm at ( 277.32, -71.18) z   2.150..  2.341,  0.008 mm^2 in plan, 0.12 x 0.15
+  0.08 mm at ( 279.18, -72.45) z   2.350..  4.400,  0.007 mm^2 in plan, 0.11 x 0.15
+  0.09 mm at ( 279.18, -72.45) z  -1.500..  2.341,  0.007 mm^2 in plan, 0.11 x 0.14
+  0.10 mm at ( 277.27, -47.71) z   2.550..  4.400,  0.010 mm^2 in plan, 0.18 x 0.12
+  0.10 mm at ( 277.62, -47.71) z   4.400..  4.600,  0.009 mm^2 in plan, 0.17 x 0.11
+  0.10 mm at ( 275.36, -47.71) z   1.650..  2.341,  0.007 mm^2 in plan, 0.12 x 0.11
+  0.11 mm at ( 279.16, -50.11) z   4.600..  6.430,  0.011 mm^2 in plan, 0.13 x 0.14
+  0.11 mm at ( 179.21, -49.55) z   2.350..  3.295,  0.017 mm^2 in plan, 0.24 x 0.16
+  0.11 mm at ( 279.16, -69.09) z   4.600..  6.430,  0.011 mm^2 in plan, 0.13 x 0.14
+  0.13 mm at ( 179.21, -49.54) z   2.150..  2.341,  0.017 mm^2 in plan, 0.24 x 0.16
+  0.17 mm at ( 164.01, -47.74) z   2.350..  4.150,  0.021 mm^2 in plan, 0.25 x 0.17
+  0.17 mm at ( 164.01, -47.74) z  -1.500..  2.341,  0.021 mm^2 in plan, 0.25 x 0.17
+  0.17 mm at ( 216.70, -96.32) z   2.350..  2.450,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.17 mm at ( 221.70, -96.32) z   2.350..  2.450,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.17 mm at ( 216.70, -96.31) z   2.150..  2.341,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.17 mm at ( 221.70, -96.31) z   2.150..  2.341,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.17 mm at ( 220.26, -96.31) z   2.150..  2.341,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.17 mm at ( 220.26, -96.32) z   2.350..  2.450,  0.029 mm^2 in plan, 0.35 x 0.19
+  0.20 mm at ( 248.00, -48.90) z   1.650..  2.150,  0.034 mm^2 in plan, 0.34 x 0.29
+  0.22 mm at ( 220.95,-127.48) z   3.650.. 10.500,  0.250 mm^2 in plan, 1.30 x 1.25
+  0.22 mm at ( 174.28, -49.39) z   2.350..  3.450,  0.108 mm^2 in plan, 0.97 x 0.45
+  0.23 mm at ( 156.56,-124.27) z   3.650.. 10.500,  0.186 mm^2 in plan, 0.73 x 1.43
+  0.23 mm at ( 166.76,-142.14) z   3.650.. 10.500,  0.186 mm^2 in plan, 1.43 x 0.73
+  0.23 mm at ( 255.62, -69.11) z   3.650..  6.430,  0.062 mm^2 in plan, 0.68 x 0.34
+  0.24 mm at ( 162.46,-120.45) z   3.650.. 10.500,  0.065 mm^2 in plan, 0.69 x 0.55
+  0.30 mm at ( 176.78, -51.36) z   1.600..  2.150,  0.140 mm^2 in plan, 0.50 x 0.34
+  0.30 mm at ( 250.98, -51.36) z   1.600..  2.150,  0.140 mm^2 in plan, 0.50 x 0.34
+  0.33 mm at ( 273.71,-100.36) z   2.150..  2.341,  1.121 mm^2 in plan, 6.21 x 1.28
+  0.33 mm at ( 273.71,-100.36) z   2.350..  2.450,  1.121 mm^2 in plan, 6.21 x 1.28
+  0.35 mm at ( 221.45, -43.67) z  -1.500..  1.600,  0.304 mm^2 in plan, 1.35 x 0.36
+  0.40 mm at ( 212.89, -98.97) z   2.150..  2.341,  0.345 mm^2 in plan, 0.42 x 1.14
+  0.40 mm at ( 212.89, -98.97) z   2.350..  2.450,  0.345 mm^2 in plan, 0.42 x 1.14
+  0.40 mm at ( 277.62, -49.60) z   4.400..  4.600,  0.147 mm^2 in plan, 0.38 x 1.06
+  0.49 mm at ( 181.02, -55.90) z   3.650..  6.430,  0.321 mm^2 in plan, 0.88 x 0.51
+  0.53 mm at ( 188.13, -47.95) z   4.350..  5.095,  0.834 mm^2 in plan, 2.60 x 0.59
+  0.57 mm at ( 184.96, -47.95) z   4.350..  6.430,  4.704 mm^2 in plan, 9.14 x 0.59
   0.62 mm at ( 287.97,-108.73) z  -1.500..  2.150,  0.119 mm^2 in plan, 0.67 x 0.41
-../outputs/TOTEM_alu_bottom_R.step: 49 walls thinner than 0.8 mm
-  0.07 mm at ( 242.87, -52.13) z  -1.500.. -0.550,  0.009 mm^2 in plan, 0.10 x 0.22
-  0.07 mm at ( 243.15, -50.62) z  -1.500.. -0.550,  0.009 mm^2 in plan, 0.10 x 0.22
-  0.07 mm at ( 279.13, -50.12) z   1.085..  2.140,  0.005 mm^2 in plan, 0.10 x 0.11
-  0.07 mm at ( 278.70, -49.43) z   2.150..  3.947,  1.061 mm^2 in plan, 1.49 x 1.50
-  0.08 mm at ( 277.86, -49.72) z   2.150..  3.050,  0.172 mm^2 in plan, 0.39 x 0.83
-  0.08 mm at ( 237.10, -48.05) z   1.250..  1.545,  0.008 mm^2 in plan, 0.10 x 0.16
-  0.09 mm at ( 278.39, -47.87) z   1.941..  2.140,  0.005 mm^2 in plan, 0.18 x 0.09
-  0.09 mm at ( 278.39, -47.87) z   2.150..  2.610,  0.005 mm^2 in plan, 0.18 x 0.09
-  0.09 mm at ( 274.39,-120.40) z  -0.550.. -0.500,  0.053 mm^2 in plan, 0.57 x 0.62
-  0.10 mm at ( 175.93, -52.26) z  -0.550.. -0.500,  0.063 mm^2 in plan, 0.44 x 0.77
-  0.10 mm at ( 208.73, -47.78) z  -0.400..  2.140,  0.013 mm^2 in plan, 0.39 x 0.21
-  0.10 mm at ( 208.48, -47.93) z   2.150..  3.250,  0.082 mm^2 in plan, 0.67 x 0.48
-  0.11 mm at ( 164.63, -49.40) z  -0.550.. -0.500,  0.010 mm^2 in plan, 0.12 x 0.17
-  0.13 mm at ( 267.74, -56.92) z  -0.550.. -0.500,  0.056 mm^2 in plan, 0.63 x 0.16
-  0.14 mm at ( 232.70, -48.98) z  -2.554.. -1.700,  0.024 mm^2 in plan, 0.21 x 0.26
-  0.14 mm at ( 278.81, -69.29) z   2.150..  3.995,  0.020 mm^2 in plan, 0.24 x 0.23
-  0.14 mm at ( 278.81, -69.29) z   1.085..  2.140,  0.020 mm^2 in plan, 0.24 x 0.23
-  0.14 mm at ( 279.09, -71.13) z   2.660..  3.750,  0.097 mm^2 in plan, 0.47 x 0.57
-  0.18 mm at ( 206.82, -48.08) z   3.050..  3.250,  0.079 mm^2 in plan, 0.52 x 0.60
-  0.20 mm at ( 277.11, -49.10) z   1.941..  2.140,  0.025 mm^2 in plan, 0.21 x 0.25
-  0.24 mm at ( 279.04, -48.63) z   2.660..  3.050,  0.046 mm^2 in plan, 0.28 x 0.39
-  0.24 mm at ( 260.84,-124.47) z  -1.700.. -0.550,  0.146 mm^2 in plan, 1.58 x 0.25
-  0.27 mm at ( 188.17, -56.00) z  -1.500.. -0.550,  0.426 mm^2 in plan, 2.76 x 1.04
-  0.28 mm at ( 236.63, -47.80) z  -0.400..  0.000,  0.048 mm^2 in plan, 0.44 x 0.23
-  0.33 mm at ( 221.45, -43.68) z  -2.554.. -1.700,  0.297 mm^2 in plan, 1.36 x 0.34
-  0.38 mm at ( 187.70, -47.95) z   2.150..  3.750,  3.119 mm^2 in plan, 9.82 x 0.58
-  0.42 mm at ( 231.48,-102.76) z  -2.554.. -0.550,  0.290 mm^2 in plan, 0.87 x 0.44
-  0.42 mm at ( 242.91, -48.73) z  -0.500..  0.635,  3.069 mm^2 in plan, 6.73 x 0.79
-  0.43 mm at ( 207.46, -48.64) z   3.598..  3.750,  0.341 mm^2 in plan, 0.60 x 0.94
-  0.44 mm at ( 221.48, -96.00) z  -1.500.. -0.550,  0.347 mm^2 in plan, 1.03 x 0.75
-  0.44 mm at ( 267.99,-108.06) z  -2.554.. -0.550,  0.217 mm^2 in plan, 0.49 x 0.96
-  0.46 mm at ( 199.03,-121.03) z  -2.554.. -0.550,  0.025 mm^2 in plan, 0.26 x 0.24
-  0.51 mm at ( 241.30, -53.07) z  -1.500.. -0.550,  0.408 mm^2 in plan, 1.37 x 1.04
-  0.52 mm at ( 180.74,-126.77) z  -2.554.. -0.550,  0.287 mm^2 in plan, 0.63 x 0.76
-  0.52 mm at ( 184.95, -47.96) z  -1.500..  2.140,  4.588 mm^2 in plan, 9.16 x 0.58
-  0.54 mm at ( 191.87,-128.47) z  -1.700.. -0.550,  0.406 mm^2 in plan, 1.57 x 0.58
-  0.55 mm at ( 210.36,-125.79) z  -1.700.. -0.550,  0.452 mm^2 in plan, 1.65 x 0.59
-  0.56 mm at ( 231.71, -90.61) z  -2.554.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.69
-  0.56 mm at ( 231.71, -73.61) z  -2.554.. -0.550,  0.475 mm^2 in plan, 0.60 x 1.69
-  0.56 mm at ( 212.71,-108.52) z  -1.600.. -0.550,  0.475 mm^2 in plan, 1.70 x 0.60
-  0.56 mm at ( 175.55,-135.21) z  -1.700.. -0.550,  0.470 mm^2 in plan, 1.68 x 0.85
-  0.56 mm at ( 204.27,-104.68) z  -1.600.. -0.550,  0.473 mm^2 in plan, 1.69 x 0.60
-  0.56 mm at ( 164.20,-133.53) z  -1.700.. -0.550,  0.475 mm^2 in plan, 0.85 x 1.67
-  0.56 mm at ( 285.12,-113.13) z  -1.700.. -0.550,  0.474 mm^2 in plan, 0.86 x 1.67
-  0.56 mm at ( 209.67,-107.23) z  -2.554.. -1.600,  0.226 mm^2 in plan, 0.67 x 0.71
-  0.57 mm at ( 206.51,-105.67) z  -2.554.. -1.600,  0.226 mm^2 in plan, 0.67 x 0.71
-  0.58 mm at ( 214.61, -97.10) z  -1.500.. -0.550,  0.706 mm^2 in plan, 1.11 x 1.66
-  0.61 mm at ( 166.54, -48.38) z   3.598..  3.750,  0.796 mm^2 in plan, 0.65 x 1.45
-  0.62 mm at ( 238.10, -48.50) z   0.635..  1.941,  0.957 mm^2 in plan, 1.56 x 1.23
+  0.62 mm at ( 288.47,-105.96) z  -1.500..  2.150,  0.119 mm^2 in plan, 0.68 x 0.41
+  0.68 mm at ( 257.35, -69.27) z   3.650..  9.000,  1.363 mm^2 in plan, 3.07 x 0.90
+  0.68 mm at ( 246.27,-119.68) z   3.650..  9.000,  0.413 mm^2 in plan, 0.71 x 0.85
+  0.74 mm at ( 240.39, -54.68) z   3.650..  3.700,  1.280 mm^2 in plan, 2.56 x 0.76
+  0.77 mm at ( 185.89, -55.76) z   3.650..  6.430,  4.979 mm^2 in plan, 6.91 x 0.78
+../outputs/TOTEM_alu_bottom_R.step: 37 walls thinner than 0.8 mm
+  0.08 mm at ( 242.87, -52.13) z  -1.310.. -0.550,  0.010 mm^2 in plan, 0.11 x 0.23
+  0.08 mm at ( 277.77, -50.08) z   2.150..  4.200,  0.006 mm^2 in plan, 0.09 x 0.13
+  0.08 mm at ( 243.15, -50.62) z  -1.310.. -0.550,  0.010 mm^2 in plan, 0.11 x 0.23
+  0.11 mm at ( 279.17, -50.11) z   1.085..  4.200,  0.011 mm^2 in plan, 0.13 x 0.14
+  0.11 mm at ( 279.16, -69.09) z   1.085..  4.200,  0.011 mm^2 in plan, 0.13 x 0.14
+  0.12 mm at ( 239.12, -47.76) z   0.635..  1.167,  0.039 mm^2 in plan, 0.38 x 0.21
+  0.14 mm at ( 232.70, -48.99) z  -2.554.. -1.710,  0.026 mm^2 in plan, 0.21 x 0.26
+  0.19 mm at ( 247.30, -48.25) z   0.635..  2.150,  0.781 mm^2 in plan, 1.19 x 1.20
+  0.24 mm at ( 260.85,-124.47) z  -1.700.. -0.550,  0.154 mm^2 in plan, 1.57 x 0.26
+  0.28 mm at ( 188.11, -55.97) z  -1.500.. -0.550,  0.449 mm^2 in plan, 3.23 x 1.22
+  0.30 mm at ( 198.99,-121.02) z  -2.554.. -1.710,  0.015 mm^2 in plan, 0.18 x 0.19
+  0.30 mm at ( 198.99,-121.02) z  -1.700.. -0.550,  0.015 mm^2 in plan, 0.18 x 0.19
+  0.34 mm at ( 221.45, -43.67) z  -2.554.. -1.710,  0.302 mm^2 in plan, 1.34 x 0.35
+  0.42 mm at ( 231.48,-102.76) z  -2.554.. -1.710,  0.288 mm^2 in plan, 0.86 x 0.44
+  0.42 mm at ( 231.48,-102.76) z  -1.700.. -0.550,  0.288 mm^2 in plan, 0.86 x 0.44
+  0.43 mm at ( 221.49, -95.99) z  -1.500.. -0.550,  0.344 mm^2 in plan, 1.01 x 0.74
+  0.44 mm at ( 267.98,-108.08) z  -2.554.. -1.710,  0.217 mm^2 in plan, 0.49 x 0.96
+  0.44 mm at ( 267.98,-108.08) z  -1.700.. -1.500,  0.217 mm^2 in plan, 0.49 x 0.96
+  0.44 mm at ( 267.98,-108.08) z  -1.310.. -0.550,  0.217 mm^2 in plan, 0.49 x 0.96
+  0.53 mm at ( 241.29, -53.06) z  -1.310.. -0.550,  0.413 mm^2 in plan, 1.35 x 1.04
+  0.53 mm at ( 180.74,-126.77) z  -2.554.. -1.710,  0.277 mm^2 in plan, 0.63 x 0.74
+  0.53 mm at ( 180.74,-126.77) z  -1.700.. -0.550,  0.277 mm^2 in plan, 0.63 x 0.74
+  0.54 mm at ( 191.88,-128.48) z  -1.700.. -0.550,  0.412 mm^2 in plan, 1.59 x 0.59
+  0.56 mm at ( 210.37,-125.79) z  -1.700.. -0.550,  0.443 mm^2 in plan, 1.61 x 0.59
+  0.56 mm at ( 231.71, -90.59) z  -2.554.. -1.710,  0.476 mm^2 in plan, 0.60 x 1.70
+  0.56 mm at ( 231.71, -90.59) z  -1.700.. -0.550,  0.476 mm^2 in plan, 0.60 x 1.70
+  0.56 mm at ( 231.71, -73.59) z  -2.554.. -1.710,  0.476 mm^2 in plan, 0.60 x 1.70
+  0.56 mm at ( 231.71, -73.59) z  -1.700.. -0.550,  0.476 mm^2 in plan, 0.60 x 1.70
+  0.56 mm at ( 164.20,-133.54) z  -1.700.. -0.550,  0.476 mm^2 in plan, 0.85 x 1.67
+  0.56 mm at ( 285.28,-112.72) z  -1.700.. -0.550,  0.477 mm^2 in plan, 0.87 x 1.67
+  0.57 mm at ( 206.52,-105.65) z  -2.554.. -1.710,  0.209 mm^2 in plan, 0.64 x 0.71
+  0.57 mm at ( 206.52,-105.65) z  -1.700.. -0.550,  0.209 mm^2 in plan, 0.64 x 0.71
+  0.57 mm at ( 180.00, -48.39) z  -1.500..  3.950,  5.371 mm^2 in plan, 9.94 x 1.47
+  0.57 mm at ( 209.67,-107.23) z  -1.700.. -0.550,  0.209 mm^2 in plan, 0.64 x 0.71
+  0.57 mm at ( 209.66,-107.24) z  -2.554.. -1.710,  0.209 mm^2 in plan, 0.64 x 0.71
+  0.58 mm at ( 175.57,-135.21) z  -1.700.. -0.550,  0.515 mm^2 in plan, 1.78 x 0.88
+  0.59 mm at ( 214.60, -97.12) z  -1.500.. -0.550,  0.713 mm^2 in plan, 1.11 x 1.65
 ```
 
 ```
-top L grid points with a layer < 0.8 mm: 0 min layer 1.0
-bottom L grid points with a layer < 0.8 mm: 0 min layer 0.805
-top R grid points with a layer < 0.8 mm: 0 min layer 1.0
-bottom R grid points with a layer < 0.8 mm: 55 min layer 0.8
-  thin spot around (286.7,-106.2) span 1.0x4.8 min 0.80 mm  n=55
+top L grid points with a layer < 0.8 mm: 209 min layer 0.45
+  thin spot around (120.2,-56.3) span 0.2x0.0 min 0.52 mm  n=2
+  thin spot around (127.2,-56.3) span 0.2x0.0 min 0.52 mm  n=2
+  thin spot around (87.1,-96.8) span 2.0x1.0 min 0.52 mm  n=37
+  thin spot around (93.2,-98.1) span 3.8x4.0 min 0.52 mm  n=82
+  thin spot around (33.8,-99.6) span 5.7x1.5 min 0.45 mm  n=69
+  thin spot around (49.4,-69.9) span 3.0x0.5 min 0.52 mm  n=17
+bottom L grid points with a layer < 0.8 mm: 46 min layer 0.004
+  thin spot around (18.6,-101.4) span 0.0x1.8 min 0.78 mm  n=8
+  thin spot around (131.2,-52.6) span 1.2x1.2 min 0.80 mm  n=32
+  thin spot around (119.9,-131.9) span 0.8x0.2 min 0.00 mm  n=2
+  thin spot around (130.6,-136.8) span 0.0x0.0 min 0.01 mm  n=1
+  thin spot around (128.8,-135.8) span 0.0x0.0 min 0.28 mm  n=1
+  thin spot around (124.8,-133.8) span 0.0x0.0 min 0.23 mm  n=1
+  thin spot around (107.6,-128.8) span 0.0x0.0 min 0.01 mm  n=1
+top R grid points with a layer < 0.8 mm: 216 min layer 0.45
+  thin spot around (189.2,-56.3) span 0.5x0.0 min 0.52 mm  n=3
+  thin spot around (182.2,-56.3) span 0.5x0.0 min 0.52 mm  n=3
+  thin spot around (274.1,-99.6) span 6.0x1.5 min 0.45 mm  n=69
+  thin spot around (258.4,-69.9) span 3.0x0.5 min 0.52 mm  n=16
+  thin spot around (221.0,-96.8) span 2.0x1.0 min 0.52 mm  n=38
+  thin spot around (214.8,-98.0) span 3.8x4.0 min 0.52 mm  n=86
+  thin spot around (191.4,-129.3) span 0.0x0.0 min 0.52 mm  n=1
+bottom R grid points with a layer < 0.8 mm: 37 min layer 0.653
+  thin spot around (287.2,-105.3) span 0.2x1.0 min 0.65 mm  n=6
+  thin spot around (176.8,-52.7) span 1.2x1.2 min 0.80 mm  n=31
 ```
 
 ## 3-axis machining with a Ø2 mm flat end mill
@@ -373,24 +481,25 @@ On each side the
 surface a Ø2 mm flat end mill leaves is the grey-level closing of the part's height map by a 1 mm
 disc; any spot where the part lies deeper than that (material the mill can't remove: a slot
 narrower than 2 mm, an inside corner sharper than R1, a pocket hidden under an overhang) is
-counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.4 in the top, Ø1.6 tap drill in the bottom) and not counted. Tilted faces outside the countersinks are reported separately;
-they must be horizontal or vertical for a strict 2.5D result. Pictures: `work/mach_*.png`.
+counted if it is more than 0.03 mm deep. The screw holes are drilled (Ø2.4 in the top, Ø1.6 tap drill in the bottom) and not counted. Tilted and curved faces outside the countersinks (cut
+with the same flat end mill on 3D toolpaths) are reported as their area; the test above already
+covers them. Pictures: `work/mach_*.png`.
 
 ```
-../outputs/TOTEM_alu_top_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
-../outputs/TOTEM_alu_bottom_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
-../outputs/TOTEM_wood_window_insert_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
-../outputs/TOTEM_alu_top_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
-../outputs/TOTEM_alu_bottom_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
-../outputs/TOTEM_wood_window_insert_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, sloped faces outside the countersinks: 0.00 mm²
+../outputs/TOTEM_alu_top_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 0.00 mm²
+../outputs/TOTEM_alu_bottom_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 202.74 mm²
+../outputs/TOTEM_wood_window_insert_L.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 0.00 mm²
+../outputs/TOTEM_alu_top_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 0.00 mm²
+../outputs/TOTEM_alu_bottom_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 203.05 mm²
+../outputs/TOTEM_wood_window_insert_R.step: tool Ø2: 0 spots the mill cannot cut, undercut columns: 0, 3D surfaces outside the countersinks (3D toolpaths): 0.00 mm²
 ```
 
 Measured fit after machining (smallest vertical gap between the top's underside
 and the bottom's top face, each as the Ø2 mm end mill leaves it):
 
 ```
-L: smallest vertical gap top/bottom: as modelled -0.30 mm, both parts as a Ø2 mm end mill leaves them -0.30 mm
-R: smallest vertical gap top/bottom: as modelled -0.10 mm, both parts as a Ø2 mm end mill leaves them -0.10 mm
+L: smallest vertical gap top/bottom: as modelled 0.20 mm, both parts as a Ø2 mm end mill leaves them 0.20 mm
+R: smallest vertical gap top/bottom: as modelled 0.20 mm, both parts as a Ø2 mm end mill leaves them 0.20 mm
 ```
 
 Parts that must still fit where no keep-out applies (overlap volume, new / original):

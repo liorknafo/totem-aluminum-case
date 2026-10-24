@@ -376,7 +376,7 @@ SWITCH_GAP = 0.3  # switch housings: plastic, they clip into the plate)
 
 
 def raise_floors(L, P, Lb, keep, foot=None, skin=SKIN, ledge=LEDGE, grow=LEDGE_GROW, gap=LEDGE_GAP,
-                 log=log, name=''):
+                 log=log, name='', spots_only=False):
     """Tops: where a floor open above (the keycap-well floor) is thinner than `skin` over a pocket
     cut from below (the rounded ends of the diode pockets poke out from under the webs), put a
     ledge on the floor: the thin spot grown by `grow` within that floor, clear of every part above
@@ -413,6 +413,8 @@ def raise_floors(L, P, Lb, keep, foot=None, skin=SKIN, ledge=LEDGE, grow=LEDGE_G
             bare = th.intersection(piece).difference(left).area
             log(name, f'ledge at', np.round(piece.centroid.coords[0], 2), f'{left.area:.2f} mm^2 raised {zt:.3f} -> {h:.3f}'
                 + (f'; {bare:.3f} mm^2 of the thin spot too close to a part' if bare > 1e-3 else ''))
+    if spots_only:
+        return spots
     if not spots:
         return L, P, Lb
     return fill_spots(L, P, Lb, spots, name=name, what='ledge')
@@ -430,7 +432,7 @@ def thin_pieces(sec, w, min_area=2e-3):
     return [g for g in mill.pieces(thin) if g.area > min_area]
 
 
-def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log, name=''):
+def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log, name='', spots_only=False):
     """Tops: a wall thinner than `w` between a keycap well and something else (the XIAO pocket,
     a part's pocket) is thickened into the well: the well's floor beside it comes up to the top
     face, within `grow` of the wall, `gap` clear of the keycaps (at rest and pressed down their
@@ -464,7 +466,7 @@ def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log
                     spots.append((piece, 'top', zmax))
     if not spots:
         log(name, 'no thin walls beside the keycap wells')
-        return L, P, Lb
+        return spots if spots_only else (L, P, Lb)
     # and whatever of the well beside them a Ø2 mill can't reach any more (a corner sharper
     # than R1 between a fill and the wall next to it): filled too, no nearer the keycaps than
     # the walls round it
@@ -475,6 +477,8 @@ def widen_well_walls(L, P, Lb, side, w=WELL_WALL, grow=1.0, gap=CAP_GAP, log=log
     reach = void.buffer(-1.05, quad_segs=16).buffer(1.05 + 1e-4, quad_segs=16)   # the checker's R1, with its grid
     left = void.difference(reach).intersection(wells).intersection(filled.buffer(1.2))
     spots += [(g, 'top', zmax) for g in mill.pieces(left) if g.area > 1e-5]
+    if spots_only:
+        return spots
     return fill_spots(L, P, Lb, spots, name=name, what='keycap-well wall')
 
 
@@ -860,15 +864,15 @@ def chains(P):
 
 
 def fit_chains(C, tol=FIT_TOL, modes=None):
-    """modes per chain: 'fit' (lines and arcs), 'lines' (straight runs merged), 'raw' (every
-    vertex kept)."""
+    """modes per chain: 'fit' (lines and arcs), 'tight' (lines and arcs, closer to the vertices),
+    'lines' (straight runs merged), 'raw' (every vertex kept)."""
     F = []
     for ci, pts in enumerate(C):
         mode = modes[ci] if modes else 'fit'
         if mode == 'raw':
             pr = [('line', i, i + 1) for i in range(len(pts) - 1)]
         else:
-            pr = fit2d.fit(pts, tol, rmax=500.0 if mode == 'fit' else 0.0)
+            pr = fit2d.fit(pts, tol / 5 if mode == 'tight' else tol, rmax=0.0 if mode == 'lines' else 500.0)
         # a chain closed on itself as a single arc can't be drawn with one 3-point arc: split it
         out = []
         for p in pr:
@@ -897,7 +901,7 @@ def checked_faces(P, C, seg, log=log, name=''):
     from OCP.BRepCheck import BRepCheck_Analyzer
     modes = ['fit'] * len(C)
     users = [ring_chains(q, seg) for q in P]
-    for rnd in range(3):
+    for rnd in range(6):
         F = fit_chains(C, modes=modes)
         faces, bad = [], []
         for qi, q in enumerate(P):
@@ -909,9 +913,23 @@ def checked_faces(P, C, seg, log=log, name=''):
         log(name, f'faces: {len(bad)} invalid in round {rnd}')
         if not bad:
             return faces, F
-        nxt = {'fit': 'lines', 'lines': 'raw', 'raw': 'raw'}
+        nxt = {'fit': 'tight', 'tight': 'lines', 'lines': 'raw', 'raw': 'raw'}
+        def face_ok(qi, F2):
+            f = region_face(P[qi], C, F2, seg, 0.0)
+            return BRepCheck_Analyzer(f).IsValid() and abs(cq.Face(f).Area() - P[qi].area) < 0.01 + 0.005 * P[qi].area
         for qi in bad:
-            for ci in users[qi]:
+            # the chain that spoils the face, drawn more plainly alone (the face's other chains keep
+            # their arcs); failing that, all of them
+            one = None
+            for ci in sorted(users[qi], key=lambda ci: len(C[ci])):
+                if modes[ci] == 'raw':
+                    continue
+                F2 = list(F)
+                F2[ci] = fit_chains([C[ci]], modes=[nxt[modes[ci]]])[0]
+                if face_ok(qi, F2):
+                    one = ci
+                    break
+            for ci in ([one] if one is not None else users[qi]):
                 modes[ci] = nxt[modes[ci]]
     import pickle
     pickle.dump([P[i] for i in bad], open(f'/tmp/clean_bad_{name.replace(" ", "_")}.pkl', 'wb'))

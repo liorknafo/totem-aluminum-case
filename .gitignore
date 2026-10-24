@@ -40,3 +40,9 @@ work/*
 !work/fit2d.py
 !work/diff_mesh.py
 !work/walls.py
+!work/model.py
+!work/feat.py
+!work/curves.py
+!work/ref_extract.py
+!work/model_ref.json
+!work/planner_mesh.py
