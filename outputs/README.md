@@ -108,15 +108,27 @@ recesses, battery pocket, feet and the leg ramp's plane fitted to the bottom's f
 air band by band. Everything else is designed in the code: the walls, seams and notches, chamfers,
 screw holes, the XIAO pocket and its open end, the window. The board, parts, pads and XIAO keep-outs
 (from KiCad) are cut as the Ø2 mill makes them, drawn with true arcs; the top then makes room for
-the bottom as the mill leaves it (0.2 mm), and a last check fills any speck the mill can't reach.
-Every stage must be one valid solid that survives a STEP round trip. Rebuild: `cd work &&
-python model.py all L` (and `R`), about 25 minutes per half.
+the bottom as the mill leaves it (0.2 mm), and a last check fills any speck the mill can't reach
+(all the air a Ø2 tool can't sweep next to it, so no new hair is left beside the fill). Every stage
+must be one valid solid that survives a STEP round trip; coplanar neighbouring faces are merged when
+a part is written. Each part also meshes as a CAM program meshes a STEP (Open CASCADE at 0.05 mm,
+`work/planner_mesh.py`) with every face tessellated and no open edges, so CAM takes it as a closed
+solid: the walls' outer faces are the outline's own surfaces, and outlines never fold back on
+themselves (no hair-thin faces). Rebuild: `cd work && python model.py all L` (and `R`), about 30
+minutes per half; `model.py top L --from-regions` reruns a top from its cached column regions in
+about 10.
+
+The tops keep the clean parts' ledges over the diode-pocket ends (the plate at least 1.0 mm there,
+the well floor z 3.65 → 4.15 or 4.20), drawn as the mill makes them. Where one of the bottom's walls
+ends free, the top has an R1.05 pocket round the wall's end (up to 0.2 mm over its top), so the
+mill can cut the 0.2 mm room round it.
 
 Compared with the clean 2.5D parts before it: the leg ramps are planes instead of 0.5 mm steps; the
 back and left walls are designed with a flat seam (the bottom's wall top at h, the top's 0.4 mm
 above it; no lips and no fins); the outer outline keeps the original's B-splines; the reset slot is
-sized to the plunger. Volumes: tops ≈17.56–17.58 cm³ (were 17.73–17.75), bottoms ≈70.72–70.76 cm³
-(were 70.19–70.20).
+sized to the plunger. Volumes: tops ≈17.6 cm³ (were 17.73–17.75), bottoms ≈70.72–70.76 cm³
+(were 70.19–70.20). Not carried over: the clean parts' thickened walls beside the keycap wells
+(below); the parametric tops keep the original's well edges.
 
 ## Clean CAD (2026-10-22, superseded by the parametric model)
 
@@ -182,7 +194,8 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
   wide and the 0.2 mm lip is gone (the last 1.2 mm at each end of a run shows 1.1 mm: there the
   top keeps its old face, as the mill's R1 corner where its lowered face ends must stay over the
   lowered lip).
-- **Walls beside the keycap wells.** Where a wall between a keycap well and a pocket was thinner
+- **Walls beside the keycap wells** (in the clean parts; not in the parametric model, whose fills
+  there left hairs no mill reaches). Where a wall between a keycap well and a pocket was thinner
   than 0.8 mm (the worst, 0.45 mm and 3.3 mm tall, between the SWL1 well and the XIAO), the well's
   edge comes in by up to 1 mm beside it, as far as the keycaps allow: they keep 0.3 mm of room at
   rest and fully pressed, and so do the switch housings. Five spots per top, ≈140–155 mm³.
@@ -210,7 +223,8 @@ Each part lost 10–21 mm³ of metal, almost all of it hairline specks on the ou
     sides are keep-outs);
   - in the tops: the walls in front of the reset button and power switch (0.4–0.6 mm, as in the
     original), the back seam's lips (0.3–0.6 mm), small steps at the diode pockets (0.3 mm tall)
-    and the screw bosses' rings at the board (0.6–0.7 mm), all under 3.6 mm tall;
+    and the screw bosses' rings at the board (0.6–0.7 mm), all under 3.6 mm tall; and the wall
+    between the first keycap well and the XIAO pocket (≈0.45 mm, 5.4 mm tall, as in the original);
   - specks under 0.1 mm² in plan where two pocket outlines nearly meet.
   Floors and roofs are all at least 0.8 mm (1.0 mm in the tops).
 - The panel tabs on the PCB edge (mouse-bites) must be sanded flush — clearances were measured

@@ -863,6 +863,30 @@ def chains(P):
     return out, seg
 
 
+def unfolded(pts, cos_max=-0.5):
+    """Indices of the chain's vertices less those where it turns back on itself (by more than
+    120°): the ends always kept."""
+    keep = list(range(len(pts)))
+    changed = True
+    while changed and len(keep) > 2:
+        changed = False
+        out = [keep[0]]
+        for a in range(1, len(keep) - 1):
+            p, v, n = pts[out[-1]], pts[keep[a]], pts[keep[a + 1]]
+            u, w = v - p, n - v
+            nu, nw = np.hypot(*u), np.hypot(*w)
+            if nu > 1e-12 and nw > 1e-12 and np.dot(u, w) < cos_max * nu * nw:
+                changed = True
+                continue
+            out.append(keep[a])
+        out.append(keep[-1])
+        keep = out
+    # (a closed chain keeps a triangle at least: else all its vertices)
+    if np.allclose(pts[0], pts[-1]) and len(keep) < 4:
+        return list(range(len(pts)))
+    return keep
+
+
 def dp_keep(pts, eps):
     """Indices of the points Douglas-Peucker keeps at eps (the ends always)."""
     keep = np.zeros(len(pts), bool)
@@ -890,15 +914,22 @@ def fit_chains(C, tol=FIT_TOL, modes=None):
     through their neighbours: no hair-fine zigzag folding the outline back on itself, which a
     mesher can't stitch), 'exact' (every vertex kept)."""
     F = []
-    for ci, pts in enumerate(C):
+    for ci, pts0 in enumerate(C):
         mode = modes[ci] if modes else 'fit'
         if mode == 'exact':
-            pr = [('line', i, i + 1) for i in range(len(pts) - 1)]
-        elif mode == 'raw':
-            keep = dp_keep(np.asarray(pts, float), 0.002)
-            pr = [('line', i, j) for i, j in zip(keep[:-1], keep[1:])]
+            pr = [('line', i, i + 1) for i in range(len(pts0) - 1)]
         else:
-            pr = fit2d.fit(pts, tol / 5 if mode == 'tight' else tol, rmax=0.0 if mode == 'lines' else 500.0)
+            # (a vertex where the outline turns back on itself, a fold the snap-rounding leaves
+            # along a near-straight wall, is passed over: drawn, it is a hair a mesher can't stitch)
+            sub = unfolded(np.asarray(pts0, float))
+            pts = np.asarray(pts0, float)[sub]
+            if mode == 'raw':
+                keep = dp_keep(pts, 0.002)
+                pr = [('line', i, j) for i, j in zip(keep[:-1], keep[1:])]
+            else:
+                pr = fit2d.fit(pts, tol / 5 if mode == 'tight' else tol, rmax=0.0 if mode == 'lines' else 500.0)
+            pr = [(p[0], sub[p[1]], sub[p[2]]) + tuple(p[3:]) for p in pr]
+        pts = pts0
         # a chain closed on itself as a single arc can't be drawn with one 3-point arc: split it
         out = []
         for p in pr:

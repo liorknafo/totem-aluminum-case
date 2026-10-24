@@ -291,6 +291,11 @@ def top(side, bottom_part=None):
         extra.append((mirror_x(sg.box(LEFT_WALL_X[0] - 1.0, y0, LEFT_WALL_X[1] + 0.01, y1), side), zt + WALL_GAP))
     for x0, x1, zr in TOP_NOTCHES_L:
         extra.append((mirror_x(sg.box(x0, BACK_WALL_Y[0] - 0.6, x1, BACK_WALL_Y[1] + 1.0), side, MX_PARTS), zr))
+    # where a wall ends free (the left wall's front end, the back wall's end by the right edge), the
+    # room round it wraps a sharp corner a Ø2 mill can't reach from below: a pocket of the mill's
+    # own size (R1.05) round the wall's inner end corner, up to the room's height, lets it
+    ends = [((LEFT_WALL_X[1], LEFT_TOPS[0][0]), LEFT_TOPS[0][2]), ((BACK_TOPS_L[-1][1], BACK_WALL_Y[0]), BACK_TOPS_L[-1][2])]
+    extra += [(mirror_x(sg.Point(*p).buffer(1.05, quad_segs=mill.QS), side), zt + build.SEAM_GAP) for p, zt in ends]
     extra = [(feat.mill_pocket(g), z) for g, z in extra]
     if bottom_part is not None:
         entries = mill.grown_entries(bottom_part, build.SEAM_GAP, 'below', Z_RIM - 0.01, Z_WALL + 0.01)
@@ -357,6 +362,34 @@ def top(side, bottom_part=None):
     return top_from_regions(side, L, P, Lb, screws)
 
 
+def mill_fills(L, P, Lb, spots):
+    """Spots to fill in the column model (clean.fill_spots), grown to what the mill really leaves:
+    at each spot's height, from the side the mill comes, the air (with the spots filled) less what a
+    Ø2 tool sweeps of it (opening by R1.02); each spot takes the pieces of that next to it. Filling
+    a spot alone leaves a hair beside it, found again the next round."""
+    cols = [[float(L[b]), float(L[t + 1])] for b, t in Lb]
+    allp = unary_union(P)
+    frame = sg.box(*allp.buffer(5).bounds)
+    out = []
+    groups = {}
+    for sp in spots:
+        groups.setdefault((sp[1], round(sp[2], 6)), []).append(sp)
+    for (kind, h), sps in groups.items():
+        if kind == 'top':     # from above: blocked by any metal at or over the height
+            z = h - 1e-4
+            metal = unary_union([q for q, c in zip(P, cols) if c[1] >= z])
+        else:                 # from below: by any metal at or under it
+            z = h + 1e-4
+            metal = unary_union([q for q, c in zip(P, cols) if c[0] <= z])
+        air = frame.difference(metal).difference(unary_union([p for p, _, _ in sps]))
+        left = air.difference(air.buffer(-1.02, quad_segs=32).buffer(1.02, quad_segs=32))
+        lp = [g for g in pieces(left) if g.area > 1e-6]
+        for poly, _, hh in sps:
+            near = [g for g in lp if g.intersects(poly.buffer(0.1))]
+            out.append((feat.snap(unary_union(near + [poly])), kind, hh))
+    return out
+
+
 def top_from_regions(side, L, P, Lb, screws):
     """The top from its column regions (cached in regions_top_SIDE.pkl: model.py top SIDE
     --from-regions starts here): ledges, the mill's fills, the solid, then top_after_columns."""
@@ -372,6 +405,7 @@ def top_from_regions(side, L, P, Lb, screws):
     nm = f'{side} top'
     spots = clean.raise_floors(L2, P2, Lb2, clean.top_parts(side), foot=foot, log=log, name=nm, spots_only=True)
     if spots:
+        spots = mill_fills(L, P, Lb, spots)
         L, P, Lb = clean.fill_spots(L, P, Lb, spots, log=log, name=nm, what='ledge')
         P, Lb = clean.tidy_regions(P, Lb, L, log=log, name=nm, fills=unary_union([sp[0] for sp in spots]))
     # what the mill can't reach (where a region merge left a hair of metal hanging into a pocket) is
@@ -382,6 +416,7 @@ def top_from_regions(side, L, P, Lb, screws):
         log(side, f'top column model, round {rnd + 1}: {len(spots)} spots the mill cannot cut')
         if not spots:
             break
+        spots = mill_fills(L, P, Lb, spots)
         L, P, Lb = clean.fill_spots(L, P, Lb, spots, log=log, name=f'{side} top')
         P, Lb = clean.tidy_regions(P, Lb, L, log=log, name=f'{side} top', fills=unary_union([sp[0] for sp in spots]))
     part = stage(part, 'original air and designed pockets, from below and above (column model)', side)

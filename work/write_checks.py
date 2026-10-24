@@ -72,21 +72,24 @@ lines += ['', '## Parametric model', '',
           'leaves. Every stage must be one valid solid that survives a STEP round trip.', '',
           '| Part | Faces | Volume (mm³) |', '|---|---|---|']
 for side in 'LR':
-    t = (W / f'model_all_{side}.out').read_text()
-    for part, name in (('top', f'TOTEM_alu_top_{side}.step'), ('bottom', f'TOTEM_alu_bottom_{side}.step')):
-        m = list(_re.finditer(rf'{side} as milled: volume ([\d.]+) mm\^3, faces (\d+), valid True', t))
-        m = m[0 if part == 'bottom' else -1]
-        lines.append(f'| {side} {part} | {m.group(2)} | {float(m.group(1)):.1f} |')
-    sp = _re.findall(r'speck \((\w+)\) at \[([^\]]+)\], ([\d.]+) mm\^2, filled to ([-\d.]+)', t)
-    if sp:
-        lines.append(f'- {side}: specks filled as the mill leaves them: ' +
-                     '; '.join(f'({c.strip()}) {a} mm² from {k}' for k, c, a, h in sp))
+    for part in ('top', 'bottom'):
+        t = (W / f'model_{part}_{side}.log').read_text()
+        vol = float(_re.findall(rf'{side} as milled: volume ([\d.]+) mm\^3', t)[-1])
+        faces = _re.findall(rf'model_{part}_{side}\.step faces merged where coplanar: \d+ -> (\d+)', t)[-1]
+        lines.append(f'| {side} {part} | {faces} | {vol:.1f} |')
+        sp = _re.findall(r'speck \((\w+)\) at \[([^\]]+)\], [\d.]+ mm\^2: ([\d.]+) mm\^2 the tool', t)
+        if sp:
+            lines.append(f'- {side} {part}: specks filled as the mill leaves them: ' +
+                         '; '.join(f'({c.strip()}) {a} mm² from {k}' for k, c, a in sp))
 lines += ['', 'The parts against the previous ones (the clean 2.5D rebuild of the 3D-print parts), column by column',
           'on a 0.05 mm grid (metal only in the previous part = removed, only in the new one = added; spots over',
           '0.05 mm³): the leg ramp is now a plane instead of steps, the walls and seams are designed:', '', '```'] + \
          open(W / 'clean_diff.txt').read().strip().splitlines() + ['```']
 lines += ['', '## Solid checks', '', '```'] + open(W / 'argan_all.log').read().strip().splitlines() + ['```', '',
           '`InvalidCurveOnSurface` is a tolerance note normal after a STEP round trip.', '',
+          'Each part meshed as the CAM planner meshes a STEP (Open CASCADE, deflection 0.05 mm, angle 0.3;',
+          '`work/planner_mesh.py`): every face tessellated and no open edges, so the planner takes it as a',
+          'closed solid:', '', '```'] + open(W / 'planner_mesh.txt').read().strip().splitlines() + ['```', '',
           '## Holes through the bottom', '',
           'Every vertical line through each bottom was ray-cast (0.25 mm grid). Nothing goes through the',
           'bottom any more (the screw holes are blind tapped holes from above), and no socket pocket breaks',

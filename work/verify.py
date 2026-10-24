@@ -1,5 +1,6 @@
 """Independent checks of the aluminum case parts against the exact KiCad PCB, parts and pads."""
 import sys, json
+from pathlib import Path
 sys.path.insert(0, '.')
 from build import *
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
@@ -121,4 +122,7 @@ if __name__ == '__main__':
         out[s] = check(s, parts)
         for k, v in out[s].items():
             print(s, k, ':', v, flush=True)
-    json.dump(out, open('verify.json', 'w'), indent=1, default=str)
+        # (one file per half, so the halves can run at once; verify.json joins them)
+        json.dump(out[s], open(f'verify_{s}.json', 'w'), indent=1, default=str)
+    json.dump({h: json.load(open(f'verify_{h}.json')) for h in 'LR' if Path(f'verify_{h}.json').exists()},
+              open('verify.json', 'w'), indent=1)

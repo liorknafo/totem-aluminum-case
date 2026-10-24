@@ -1,7 +1,7 @@
 """Things the keep-outs don't cover but must still fit: the switch bodies in the top plate (plastic,
 they clip in), the keycaps pressed all the way down and the battery in the bottom. Overlap volumes,
 new parts vs the original ones."""
-import sys, json
+import sys, json, os
 sys.path.insert(0, '.')
 from build import *
 import mill
@@ -37,4 +37,7 @@ for side in sys.argv[1:] or ['L', 'R']:
     out[side] = r
     for k, v in r.items():
         print(side, k, v, flush=True)
-json.dump(out, open('fit_check.json', 'w'), indent=1)
+    # (one file per half, so the halves can run at once; fit_check.json joins them)
+    json.dump(r, open(f'fit_check_{side}.json', 'w'), indent=1)
+json.dump({h: json.load(open(f'fit_check_{h}.json')) for h in 'LR' if os.path.exists(f'fit_check_{h}.json')},
+          open('fit_check.json', 'w'), indent=1)

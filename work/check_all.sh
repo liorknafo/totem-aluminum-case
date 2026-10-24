@@ -41,6 +41,8 @@ for s in L R; do
   step through_$s "$P -E -s through.py $s 2>&1 | grep -v Warn | sed -n '/^new/,\$p' > $O/through_$s.txt"
 done
 step argan_all "$P -E -s argan_all.py > argan_all.log 2>&1"
+# each part meshed as the CAM planner (axis-cam's STEP converter) meshes it: no open edges
+step planner_mesh "$P -E -s planner_mesh.py ../outputs/TOTEM_alu_top_L.step ../outputs/TOTEM_alu_bottom_L.step ../outputs/TOTEM_wood_window_insert_L.step ../outputs/TOTEM_alu_top_R.step ../outputs/TOTEM_alu_bottom_R.step ../outputs/TOTEM_wood_window_insert_R.step 2>&1 | grep -v Warn > planner_mesh.txt"
 step render_v "$P -E -s render_v.py ../outputs/TOTEM_alu_top_L.step ../outputs/TOTEM_alu_bottom_L.step v_new_L.png 'y-62.6,y-112,y-52.7,x103.1,x57,x45' > /dev/null 2>&1"
 step reset_back "$P -E -s reset_back.py > /dev/null 2>&1; cp reset_back.png ../outputs/reset_back.png"
 step under_cmp "$P -E -s under_cmp.py > /dev/null 2>&1"
