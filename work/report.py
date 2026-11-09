@@ -115,7 +115,10 @@ def main():
     w('## Wall, floor and roof thickness')
     w('')
     w('Thinnest material between opposing faces (walls, floors, roofs and diagonal necks), measured on the')
-    w(f'solids. Designed minimum {B.T_MIN} mm, except the 1.2 mm switch clip ledge.')
+    w(f'solids. The design aims for {B.T_MIN} mm (the switch clip ledge is 1.2 mm). It gets less where the board')
+    w('leaves no room: the plate between the pocket over diode DL16/DR16 and its neighbouring switch zone (the')
+    w('diode sits 0.8 mm from the switch housing on the board), and a few spots near 0.87-0.98 mm; the')
+    w('smallest values are listed here. Every one is above the 0.6 mm minimum.')
     w('')
     for s in 'LR':
         for part in ('top', 'bottom'):

@@ -85,7 +85,10 @@ Both stop 0.1 mm from the pad copper, so the board can move no more than that at
 ## Wall, floor and roof thickness
 
 Thinnest material between opposing faces (walls, floors, roofs and diagonal necks), measured on the
-solids. Designed minimum 1.0 mm, except the 1.2 mm switch clip ledge.
+solids. The design aims for 1.0 mm (the switch clip ledge is 1.2 mm). It gets less where the board
+leaves no room: the plate between the pocket over diode DL16/DR16 and its neighbouring switch zone (the
+diode sits 0.8 mm from the switch housing on the board), and a few spots near 0.87-0.98 mm; the
+smallest values are listed here. Every one is above the 0.6 mm minimum.
 
 - L top: 0.80 mm at (32.8, -100.5, z 3.34); 0.80 mm at (32.8, -100.5, z 3.34); 0.80 mm at (35.9, -100.0, z 3.34); 0.87 mm at (51.6, -69.5, z 6.43)
 - L bottom: 1.11 mm at (147.3, -131.0, z 0.60); 1.11 mm at (148.4, -129.0, z 0.60); 1.17 mm at (147.4, -130.7, z 0.60); 1.39 mm at (144.9, -112.0, z 0.60)
