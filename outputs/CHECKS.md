@@ -1,10 +1,12 @@
 # Checks (measured on the STEP files in this folder)
 
 Written by `work/check.py` and `work/report.py`. Distances are exact (OpenCASCADE BRepExtrema)
-between each part as read back from its STEP file and: the board (true outline from
-`src/pcb_board.step`, 1.6 mm plus 0.05 mm of copper and mask on each face), every KiCad 3D part on
-that half (`src/comp_all.step`, top-side parts on the 1.6 mm board) and every copper pad
-(`src/pads.step`). Distances above 3 mm are shown as 3.00.
+between each part as read back from its STEP file and everything taken from the board file
+`src/totem_0_3.kicad_pcb`: the board (its outline with the tabs removed, 1.6 mm plus 0.05 mm of
+copper and mask on each face), every 3D part on that half (each footprint's own model files from
+`src/TOTEM3D`, placed by its `(model ...)` entry on the 1.6 mm board) and every copper pad (0.05 mm
+proud of its face). KiCad's STEP exports in `src/` are only compared with these (end of this
+file). Distances above 3 mm are shown as 3.00.
 
 **The rule:** at least 0.5 mm from aluminum to the board and to everything electrical on it.
 
@@ -142,8 +144,8 @@ Outline: largest deviation 0.115 mm, area difference 20.838 mm². The right half
 
 ## Build
 
-- L: start, board and part boxes 0.3 s, 2D design 6.4 s, solids 5.0 s, STEP write and read-back 1.0 s
-- R: start, board and part boxes 0.3 s, 2D design 6.4 s, solids 5.1 s, STEP write and read-back 1.0 s
+- L: start, board and part boxes 3.3 s, 2D design 6.5 s, solids 5.0 s, STEP write and read-back 1.0 s
+- R: start, board and part boxes 3.3 s, 2D design 6.7 s, solids 5.1 s, STEP write and read-back 1.0 s
 
 ## Pictures
 
