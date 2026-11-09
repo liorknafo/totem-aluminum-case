@@ -30,13 +30,27 @@ CACHE = Path(__file__).resolve().parent / 'cache' / 'part_boxes.json'
 
 # ----------------------------------------------------------------------------- models
 def model_path(name):
-    return Path(name.replace('${KIPRJMOD}', str(ROOT / 'src')))
+    """The model file a `(model ...)` entry refers to, resolved the way KiCad does: ${KIPRJMOD} is the
+    board's folder, and relative paths are relative to it."""
+    p = Path(name.replace('${KIPRJMOD}', str(ROOT / 'src')))
+    if not p.is_absolute():
+        p = ROOT / 'src' / p
+    return p.resolve()
+
+
+def _ident(name):
+    """A model file's identity: its full normalized path (relative to the repo when inside it)."""
+    p = model_path(name)
+    try:
+        return str(p.relative_to(ROOT.resolve()))
+    except ValueError:
+        return str(p)
 
 
 def model_key(fp):
-    """The footprint's own model entries as a string: footprints with the same key carry the same
-    geometry in their own frame (whatever their library)."""
-    return json.dumps([[Path(p).name if '${KIPRJMOD}' in p else p, list(o), list(r), list(sc)] for p, o, r, sc in fp.models])
+    """The footprint's own model entries (full model path, offset, rotation, scale) as a string:
+    only footprints with the same key share geometry, whatever their library."""
+    return json.dumps([[_ident(p), list(o), list(r), list(sc)] for p, o, r, sc in fp.models])
 
 
 def _matrix(rot):
