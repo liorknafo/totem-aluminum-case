@@ -51,32 +51,43 @@ def pcb_outline(side):
     return {'outline': ccw(out).ravel().tolist(), 'circles': circles, 'rings': rings}
 
 
-def placements(kind):
+def instanced(kind):
+    """The most common model entries of a footprint kind (drawn as one instanced mesh) and the
+    footprints that carry them; footprints of that kind with other entries are drawn as parts."""
+    from collections import Counter
+    import parts as P
+    fps = [f for f in scene.board().footprints if B.kind(f) == kind]
+    key = Counter(P.model_key(f) for f in fps).most_common(1)[0][0]
+    same = [f for f in fps if P.model_key(f) == key]
+    return same[0], same, [f for f in fps if P.model_key(f) != key]
+
+
+def placements(fps):
     out = {}
     for side in 'LR':
         shift = scene.VIEW_SHIFT if side == 'R' else 0.0
-        out[side] = [[round(fp.at[0] + shift, 4), round(fp.at[1], 4), fp.angle] for fp in scene.board().footprints
-                     if fp.side == side and B.kind(fp) == kind]
+        out[side] = [[round(fp.at[0] + shift, 4), round(fp.at[1], 4), fp.angle] for fp in fps if fp.side == side]
     return out
 
 
 def main():
+    sw_ref, sw_same, sw_other = instanced('Kailh_socket')
+    di_ref, di_same, di_other = instanced('Diode_SOD123')
     groups = {}
     for side in 'LR':
         L = scene.layers(side)
         for k in ('top', 'bottom', 'insert', 'xiao', 'battery', 'screws', 'caps'):
             groups[f'{k}_{side}'] = scene.shifted(side, L[k])
         fps = [f for f in scene.board().footprints if f.side == side and B.kind(f) in ('MSK12C02', 'SKHLLCA010')]
-        groups[f'parts_{side}'] = scene.shifted(side, scene.merge([scene.place(scene.local_model(f.lib, 'all'), f.at, f.angle) for f in fps]))
-    sw_lib = next(f.lib for f in scene.board().footprints if B.kind(f) == 'Kailh_socket')
-    di_lib = next(f.lib for f in scene.board().footprints if B.kind(f) == 'Diode_SOD123')
-    groups['switch'] = scene.merge([scene.local_model(sw_lib, 'switch'), scene.local_model(sw_lib, 'socket')])
-    groups['diode'] = scene.local_model(di_lib, 'all')
+        fps += [f for f in sw_other + di_other if f.side == side]
+        groups[f'parts_{side}'] = scene.shifted(side, scene.merge([scene.place(scene.local_model(f, 'all'), f.at, f.angle) for f in fps]))
+    groups['switch'] = scene.merge([scene.local_model(sw_ref, 'switch'), scene.local_model(sw_ref, 'socket')])
+    groups['diode'] = scene.local_model(di_ref, 'all')
     lo = np.min([v.min(0) for v, _ in groups.values() if len(v)], 0) - 1
     hi = np.max([v.max(0) for v, _ in groups.values() if len(v)], 0) + 1
     scale = (hi - lo) / 65535
     data = {'lo': lo.tolist(), 'scale': scale.tolist(), 'meshes': {},
-            'switches': placements('Kailh_socket'), 'diodes': placements('Diode_SOD123'),
+            'switches': placements(sw_same), 'diodes': placements(di_same),
             'pcb': {s: pcb_outline(s) for s in 'LR'}, 'pcb_top': 1.6}
     for k, (v, f) in groups.items():
         data['meshes'][k] = pack(v, f, lo, scale)

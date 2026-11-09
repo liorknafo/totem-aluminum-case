@@ -71,6 +71,7 @@ Python 3.12 with cadquery 2.8, numpy, shapely, scipy, trimesh, embreex, matplotl
 ```sh
 python -E -s build.py              # both halves, about 30 s; or: build.py L / build.py R
 PYTHON=python ./check_all.sh       # checks, CHECKS.md, pictures and the 3D view
+python -E -s test_variants.py      # editing one footprint changes only its own pocket (a few minutes)
 ```
 
 The first build reads the 3D part models and caches their boxes in `work/cache/`. The cache is keyed

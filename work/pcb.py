@@ -68,6 +68,7 @@ class Footprint:
     angle: float         # degrees, CCW in the case frame
     pads: list = field(default_factory=list)
     edge: list = field(default_factory=list)   # Edge.Cuts segments inside the footprint (case frame)
+    models: list = field(default_factory=list)  # its own (model ...) entries: (path, offset, rotate, scale)
 
     def to_case(self, u, v):
         """Footprint-local KiCad point -> case frame."""
@@ -246,6 +247,12 @@ class Board:
         ang = at[2] if len(at) > 2 else 0.0
         ref = next((x[2] for x in sub(f, 'fp_text') if x[1] == 'reference'), '?')
         fp = Footprint(lib=f[1], ref=ref, at=kpt(at[0], at[1]), angle=ang)
+        for m in sub(f, 'model'):
+            if 'hide' in m:
+                continue
+            vals = {k: tuple(float(v) for v in one(m, k)[1][1:]) for k in ('offset', 'rotate', 'scale') if one(m, k)}
+            fp.models.append((m[1], vals.get('offset', (0.0, 0.0, 0.0)), vals.get('rotate', (0.0, 0.0, 0.0)),
+                              vals.get('scale', (1.0, 1.0, 1.0))))
         for p in sub(f, 'pad'):
             pat = nums(one(p, 'at'))
             pang = pat[2] if len(pat) > 2 else 0.0

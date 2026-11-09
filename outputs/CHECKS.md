@@ -142,8 +142,8 @@ Outline: largest deviation 0.115 mm, area difference 20.838 mm². The right half
 
 ## Build
 
-- L: start, board and part boxes 0.3 s, 2D design 6.2 s, solids 5.0 s, STEP write and read-back 1.0 s
-- R: start, board and part boxes 0.3 s, 2D design 6.2 s, solids 5.1 s, STEP write and read-back 1.0 s
+- L: start, board and part boxes 0.3 s, 2D design 6.4 s, solids 5.0 s, STEP write and read-back 1.0 s
+- R: start, board and part boxes 0.3 s, 2D design 6.4 s, solids 5.1 s, STEP write and read-back 1.0 s
 
 ## Pictures
 

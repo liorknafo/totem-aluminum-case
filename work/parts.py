@@ -19,7 +19,7 @@ from pathlib import Path
 import cadquery as cq
 import numpy as np
 
-from pcb import SPLIT_X, one, sub
+from pcb import SPLIT_X
 
 ROOT = Path(__file__).resolve().parent.parent
 PCB_T = 1.6
@@ -29,21 +29,14 @@ CACHE = Path(__file__).resolve().parent / 'cache' / 'part_boxes.json'
 
 
 # ----------------------------------------------------------------------------- models
-def model_entries(board):
-    """{footprint lib: [(model path, offset, rotate, scale)]} from the board file."""
-    out = {}
-    for f in sub(board.tree, 'footprint'):
-        if f[1] in out:
-            continue
-        lst = []
-        for m in sub(f, 'model'):
-            if 'hide' in m:
-                continue
-            path = Path(m[1].replace('${KIPRJMOD}', str(ROOT / 'src')))
-            vals = {k: [float(v) for v in one(m, k)[1][1:]] for k in ('offset', 'rotate', 'scale') if one(m, k)}
-            lst.append((path, vals.get('offset', [0, 0, 0]), vals.get('rotate', [0, 0, 0]), vals.get('scale', [1, 1, 1])))
-        out[f[1]] = lst
-    return out
+def model_path(name):
+    return Path(name.replace('${KIPRJMOD}', str(ROOT / 'src')))
+
+
+def model_key(fp):
+    """The footprint's own model entries as a string: footprints with the same key carry the same
+    geometry in their own frame (whatever their library)."""
+    return json.dumps([[Path(p).name if '${KIPRJMOD}' in p else p, list(o), list(r), list(sc)] for p, o, r, sc in fp.models])
 
 
 def _matrix(rot):
@@ -73,17 +66,20 @@ def _model_file(path):
 _TEMPLATES = {}
 
 
-def template(board, lib):
+def template(fp):
     """The footprint's model solids in its own frame: x, y = footprint-local (KiCad x, -y),
-    z in the case frame (the board's top face at PCB_T)."""
-    if lib not in _TEMPLATES:
+    z in the case frame (the board's top face at PCB_T). Built from the footprint's own model
+    entries and shared only with footprints whose entries are identical."""
+    key = model_key(fp)
+    if key not in _TEMPLATES:
         sols = []
-        for path, off, rot, scale in model_entries(board).get(lib, []):
-            assert all(abs(s - 1) < 1e-9 for s in scale), (lib, 'scaled models are not handled')
+        for name, off, rot, scale in fp.models:
+            path = model_path(name)
+            assert all(abs(s - 1) < 1e-9 for s in scale), (fp.ref, 'scaled models are not handled')
             s = _transform(_model_file(path), _matrix(rot), (off[0], off[1], off[2] + PCB_T))
             sols += s.Solids()
-        _TEMPLATES[lib] = sols
-    return _TEMPLATES[lib]
+        _TEMPLATES[key] = sols
+    return _TEMPLATES[key]
 
 
 def place(shape, fp):
@@ -92,15 +88,21 @@ def place(shape, fp):
 
 def placed(board, fp):
     """The footprint's part solids where the board file puts them (case frame)."""
-    return [place(s, fp) for s in template(board, fp.lib)]
+    return [place(s, fp) for s in template(fp)]
 
 
 # ----------------------------------------------------------------------------- boxes for the build
+def _points(solids):
+    pts = []
+    for s in solids:
+        v, _ = s.tessellate(TESS_TOL, 0.3)
+        pts.append(np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()]))
+    return pts
+
+
 def _boxes_of(solids):
     out = []
-    for k, s in enumerate(solids):
-        v, _ = s.tessellate(TESS_TOL, 0.3)
-        P = np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()])
+    for k, P in enumerate(_points(solids)):
         a, b, z = P[:, 0], P[:, 1], P[:, 2]
         for below, m in ((True, z < ABOVE), (False, z >= ABOVE)):
             if m.sum() < 2:
@@ -119,42 +121,51 @@ def _sha(*paths):
     return h.hexdigest()
 
 
-def lib_boxes(board):
-    """{footprint lib: boxes around its model solids, split at the middle of the board} in the
-    footprint's frame. Cached in work/cache/part_boxes.json, keyed by the model files and their
-    placement entries (footprint positions do not change the boxes)."""
-    ents = model_entries(board)
-    files = sorted({str(p) for lst in ents.values() for p, *_ in lst if p.exists()})
-    key = _sha(*files) + json.dumps({k: [(p.name, o, r, s) for p, o, r, s in v] for k, v in sorted(ents.items())}) \
-        + f'-{TESS_TOL}-{PCB_T}-{ABOVE}'
-    key = hashlib.sha256(key.encode()).hexdigest()
-    if CACHE.exists():
-        c = json.loads(CACHE.read_text())
-        if c.get('key') == key:
-            return c['boxes']
-    boxes = {lib: _boxes_of(template(board, lib)) for lib in ents}
-    CACHE.parent.mkdir(exist_ok=True)
-    CACHE.write_text(json.dumps(dict(key=key, boxes=boxes)))
-    return boxes
+_BOXES = {}
 
 
-def front_box(board, lib, axis, val, sgn):
-    """Box (in the footprint frame) around the part of the model beyond `axis` = `val` on the
-    side `sgn` (an actuator ahead of the body), from the model's surface points."""
-    pts = []
-    for s in template(board, lib):
-        v, _ = s.tessellate(TESS_TOL, 0.3)
-        pts += [q.toTuple() for q in v] + [q.toTuple() for q in s.Vertices()]
-    P = np.array(pts)
+def part_boxes(board):
+    """{model key: boxes around the model solids, split at the middle of the board} for every
+    distinct set of model entries on the board, in the footprint frame. Cached in
+    work/cache/part_boxes.json, keyed by the model files' contents and the model entries."""
+    keys = sorted({model_key(f) for f in board.footprints})
+    files = sorted({str(model_path(n)) for f in board.footprints for n, *_ in f.models if model_path(n).exists()})
+    ck = hashlib.sha256((_sha(*files) + json.dumps(keys) + f'-{TESS_TOL}-{PCB_T}-{ABOVE}').encode()).hexdigest()
+    if not _BOXES.get('key') == ck:
+        boxes = None
+        if CACHE.exists():
+            c = json.loads(CACHE.read_text())
+            if c.get('key') == ck:
+                boxes = c['boxes']
+        if boxes is None:
+            rep = {model_key(f): f for f in board.footprints}
+            boxes = {k: _boxes_of(template(rep[k])) for k in keys}
+            CACHE.parent.mkdir(exist_ok=True)
+            CACHE.write_text(json.dumps(dict(key=ck, boxes=boxes)))
+        _BOXES.clear()
+        _BOXES.update(key=ck, boxes=boxes)
+    return _BOXES['boxes']
+
+
+def boxes_for(board, fp):
+    return part_boxes(board)[model_key(fp)]
+
+
+def front_box(fp, axis, val, sgn):
+    """Box (in the footprint frame) around the part of the footprint's models beyond `axis` = `val`
+    on the side `sgn` (an actuator ahead of the body), from the models' surface points; it reaches
+    back to the split plane."""
+    pts = _points(template(fp))
+    if not pts:
+        return None
+    P = np.concatenate(pts)
     c = P[:, 0] if axis == 'a' else P[:, 1]
-    m = (c - val) * sgn > 1e-9
-    m &= P[:, 2] >= ABOVE
+    m = ((c - val) * sgn > 1e-9) & (P[:, 2] >= ABOVE)
     if not m.any():
         return None
     e = TESS_TOL
     bx = dict(a0=float(P[m, 0].min() - e), a1=float(P[m, 0].max() + e), b0=float(P[m, 1].min() - e),
               b1=float(P[m, 1].max() + e), z0=float(P[m, 2].min() - e), z1=float(P[m, 2].max() + e), below=False)
-    # the actuator reaches back to the body: extend the box to the split plane
     if sgn > 0:
         bx[axis + '0'] = min(bx[axis + '0'], val)
     else:

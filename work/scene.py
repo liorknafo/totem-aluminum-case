@@ -55,17 +55,22 @@ def board():
     return Board()
 
 
-@lru_cache(maxsize=None)
-def local_model(lib, select):
-    """Mesh of one footprint type's models in its footprint frame (as placed from the board file).
+_LOCAL = {}
+
+
+def local_model(fp, select):
+    """Mesh of a footprint's models in its own frame (as placed from the board file).
     select: 'switch' (switch body), 'socket', or 'all'."""
-    meshes = []
-    for s in P.template(board(), lib):
-        is_switch = 'Kailh_socket' in lib and s.BoundingBox().zmax > P.PCB_T + 0.4   # sockets end in the board
-        if select == 'switch' and not is_switch or select == 'socket' and is_switch:
-            continue
-        meshes.append(tess(s, 0.06))
-    return merge(meshes)
+    key = (P.model_key(fp), 'Kailh_socket' in fp.lib, select)
+    if key not in _LOCAL:
+        meshes = []
+        for s in P.template(fp):
+            is_switch = key[1] and s.BoundingBox().zmax > P.PCB_T + 0.4   # the sockets end in the board
+            if select == 'switch' and not is_switch or select == 'socket' and is_switch:
+                continue
+            meshes.append(tess(s, 0.06))
+        _LOCAL[key] = merge(meshes)
+    return _LOCAL[key]
 
 
 def pcb_shape(side):
@@ -92,11 +97,11 @@ def layers(side):
     for fp in fps:
         k = B.kind(fp)
         if k == 'Kailh_socket':
-            sw.append(place(local_model(fp.lib, 'switch'), fp.at, fp.angle))
-            so.append(place(local_model(fp.lib, 'socket'), fp.at, fp.angle))
+            sw.append(place(local_model(fp, 'switch'), fp.at, fp.angle))
+            so.append(place(local_model(fp, 'socket'), fp.at, fp.angle))
             caps.append(place(cap, fp.at, fp.angle))
         elif k in ('Diode_SOD123', 'MSK12C02', 'SKHLLCA010'):
-            pr.append(place(local_model(fp.lib, 'all'), fp.at, fp.angle))
+            pr.append(place(local_model(fp, 'all'), fp.at, fp.angle))
     L['switches'] = merge(sw + so)
     L['parts'] = merge(pr)
     L['caps'] = merge(caps)

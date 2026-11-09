@@ -224,7 +224,7 @@ def keepouts(board, side):
                 add(above, fp, 'body', lambda gr, r=(a0, a1, b0, b1): local_rect(fp, *r, gr), C, z1 + C)
             continue
         fr = FRONT.get(k)
-        for bx in P.lib_boxes(board)[fp.lib]:
+        for bx in P.boxes_for(board, fp):
             if k == 'Kailh_socket' and not bx['below']:
                 continue                                 # plastic switch bodies clip into the plate
             if bx['below']:
@@ -251,7 +251,7 @@ def front_boxes(board, side):
     for fp in board.footprints:
         if fp.side != side or kind(fp) not in FRONT:
             continue
-        bx = P.front_box(board, fp.lib, *FRONT[kind(fp)])
+        bx = P.front_box(fp, *FRONT[kind(fp)])
         if bx:
             out.append((fp, bx))
     return out
@@ -537,7 +537,7 @@ def build(board, side):
 if __name__ == '__main__':
     sides = [a for a in sys.argv[1:] if a in ('L', 'R')] or ['L', 'R']
     board = Board()
-    P.lib_boxes(board)
+    P.part_boxes(board)
     t_load = time.monotonic() - T0
     log('board and part boxes loaded')
     for side in sides:
