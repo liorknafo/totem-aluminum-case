@@ -96,83 +96,116 @@ def fmt(r):
     return dict(d=None if d is None else round(d, 3), at=pt, what=lab)
 
 
+def BRepExtrema_DistShapeShape_value(a, b):
+    d = BRepExtrema_DistShapeShape(a.wrapped, b.wrapped)
+    d.Perform()
+    return d.Value()
+
+
 # ----------------------------------------------------------------------------- the board
-def board_solid(side):
-    """The half board as the case sees it: true outline (KiCad section, tabs clipped at the board
-    edge), from -COPPER to 1.6 + COPPER."""
+def board_solid(board, side, nubs=False):
+    """The half board as the case sees it: its outline from the board file (tabs removed; with
+    nubs=True plus the TAB_NUB allowance where they were), from -COPPER to 1.6 + COPPER."""
+    loops = board.outline(side)
+    f = g.from_loops(loops)
+    if nubs:
+        d = B.design(board, side)
+        f = g.union(f, *d['nubs'])
+    return cq.Compound.makeCompound(g.extrude(f, -B.COPPER, P.PCB_T + B.COPPER))
+
+
+def exports_crosscheck(board):
+    """How far KiCad's STEP exports in src/ are from the board file (they are only used here)."""
+    out = {'parts (comp_all.step)': P.crosscheck(board)}
+    # board outline: every point of each half's outline (tabs removed) lies on the export's outline,
+    # except along the tab openings
+    import shapely.geometry as sg
     pcb = load(W.parent / 'src' / 'pcb_board.step').Solids()[0]
-    if side == 'L':
-        hs = box(0, 143.35, -300, 0, -5, 5).fuse(box(0, 152, -300, -121.5, -5, 5))
-    else:
-        hs = box(156.55, 400, -300, 0, -5, 5).fuse(box(148, 400, -300, -121.5, -5, 5))
-    half = pcb.intersect(hs)
-    sec = half.intersect(box(-50, 450, -300, 50, 0.74, 0.76))
-    face = max((f for f in sec.Faces() if abs(f.normalAt().z) > 0.99 and f.Center().z > 0.755), key=lambda f: f.Area())
-    face = face.translate(cq.Vector(0, 0, -face.Center().z - B.COPPER))
-    return cq.Solid.extrudeLinear(face, cq.Vector(0, 0, P.PCB_T + 2 * B.COPPER))
+    sec = pcb.intersect(box(-50, 450, -300, 50, 0.74, 0.76))
+    rings = []
+    for f in sec.Faces():
+        if f.normalAt().z > 0.99:
+            for w in [f.outerWire()] + f.innerWires():
+                pts = [(e.positionAt(t).x, e.positionAt(t).y) for e in w.Edges() for t in np.linspace(0, 1, 40)]
+                rings.append(sg.LineString(pts))
+    from shapely.ops import unary_union
+    bnd = unary_union(rings)
+    tabs = unary_union([sg.LineString(o).buffer(0.05) for s in 'LR' for o in board.tab_openings(s)])
+    worst = 0.0
+    for s in 'LR':
+        f = g.from_loops(board.outline(s))
+        for w in [f.outerWire()]:          # cut-outs differ by the drilled holes the export also removes
+            for e in w.Edges():
+                for t in np.linspace(0, 1, 12):
+                    q = e.positionAt(t)
+                    pt = sg.Point(q.x, q.y)
+                    if not tabs.contains(pt):
+                        worst = max(worst, bnd.distance(pt))
+    out['board outline (pcb_board.step)'] = dict(max_distance=round(worst, 4))
+    # pads: every copper pad of the board file has an exported pad at its centre
+    cent = np.array([((s.BoundingBox().xmin + s.BoundingBox().xmax) / 2, (s.BoundingBox().ymin + s.BoundingBox().ymax) / 2)
+                     for s in P.load_pads()])
+    allp = [p.at for f in board.footprints for p in f.pads if p.copper and p.kind != 'np_thru_hole']
+    worst = max(float(np.min(np.hypot(cent[:, 0] - q[0], cent[:, 1] - q[1]))) for q in allp)
+    out['pads (pads.step)'] = dict(n_export=len(cent), n_board=len(allp), max_centre_offset=round(worst, 4))
+    return out
 
 
 # ----------------------------------------------------------------------------- KiCad parts
 def classify(board, side):
-    """Every KiCad part solid on this half with its category, in the case frame.
-    Returns [(category, label, solid)]; spanning solids appear twice (as exported and lifted)."""
-    fps = {f.ref: f for f in board.footprints if f.side == side}
+    """Every part solid on this half, placed from the board file, with its category.
+    Returns [(category, ref, solid)]."""
     out = []
-    for ref, sd, shp in P.load_parts():
-        if sd != side:
+    for fp in board.footprints:
+        if fp.side != side:
             continue
-        fp = fps.get(ref)
-        k = B.kind(fp) if fp else 'other'
+        k = B.kind(fp)
         if k == 'MJ-4PP-9':
             continue                                            # TRRS jack: not fitted
-        for s in shp.Solids():
-            bb = s.BoundingBox()
-            versions = []
-            if bb.zmin >= P.ABOVE:
-                versions = [P.lifted(s)]
-            elif bb.zmax <= P.KICAD_TOP + 0.01:
-                versions = [s]
-            else:
-                versions = [s, P.lifted(s)]
-            for v in versions:
-                if k == 'Kailh_socket':
-                    if bb.zmax > 1.2:
-                        # switch: only its pins under the board must keep the rule (the plastic body
-                        # clips into the plate); below the board the KiCad position is the real one
-                        if v is versions[0] and bb.zmin < 0:
-                            below = v.intersect(box(-50, 450, -300, 50, -10, 0))
-                            if below.Solids():
-                                out.append(('switch pins under the board', ref, below))
-                    else:
-                        out.append(('hot-swap socket and contacts', ref, v))
-                elif k == 'Diode_SOD123':
-                    top = v.BoundingBox().zmax
-                    out.append(('diode (whole part; epoxy top may come to 0.3)', ref, v))
-                    low = v.intersect(box(-50, 450, -300, 50, -10, top - 0.25))
-                    if low.Solids():
-                        out.append(('diode leads and body sides', ref, low))
-                elif k in B.FRONT:
-                    axis, val, sgn = B.FRONT[k]
-                    big = 50
-                    a0, a1, b0, b1 = -big, big, -big, big
-                    if axis == 'a':
-                        a0, a1 = (-big, val) if sgn < 0 else (val, big)
-                    else:
-                        b0, b1 = (-big, val) if sgn < 0 else (val, big)
-                    zone = B.local_rect(fp, a0, a1, b0, b1)
-                    zs = cq.Solid.extrudeLinear(zone.translate(cq.Vector(0, 0, -10)), cq.Vector(0, 0, 30))
-                    act = v.intersect(zs)
-                    body = v.cut(zs)
-                    name = 'power switch' if k == 'MSK12C02' else 'reset button'
-                    if body.Solids():
-                        out.append((f'{name} body (metal)', ref, body))
-                    if act.Solids():
-                        out.append((f'{name} actuator (plastic, in its opening)', ref, act))
+        for v in P.placed(board, fp):
+            bb = v.BoundingBox()
+            if k == 'Kailh_socket':
+                if bb.zmax > P.PCB_T + 0.4:
+                    # switch: only its pins under the board must keep the rule (the plastic body
+                    # clips into the plate)
+                    if bb.zmin < 0:
+                        below = v.intersect(box(-50, 450, -300, 50, -10, 0))
+                        if below.Solids():
+                            out.append(('switch pins under the board', fp.ref, below))
                 else:
-                    out.append((f'other part ({k})', ref, v))
+                    out.append(('hot-swap socket and contacts', fp.ref, v))
+            elif k == 'Diode_SOD123':
+                out.append(('diode (whole part; epoxy top may come to 0.3)', fp.ref, v))
+                low = v.intersect(box(-50, 450, -300, 50, -10, bb.zmax - 0.25))
+                if low.Solids():
+                    out.append(('diode leads and body sides', fp.ref, low))
+            elif k in B.FRONT:
+                axis, val, sgn = B.FRONT[k]
+                big = 50
+                a0, a1, b0, b1 = -big, big, -big, big
+                if axis == 'a':
+                    a0, a1 = (-big, val) if sgn < 0 else (val, big)
+                else:
+                    b0, b1 = (-big, val) if sgn < 0 else (val, big)
+                zone = B.local_rect(fp, a0, a1, b0, b1)
+                zs = cq.Solid.extrudeLinear(zone.translate(cq.Vector(0, 0, -10)), cq.Vector(0, 0, 30))
+                act = v.intersect(zs)
+                body = v.cut(zs)
+                name = 'power switch' if k == 'MSK12C02' else 'reset button'
+                if body.Solids():
+                    out.append((f'{name} body (metal)', fp.ref, body))
+                if act.Solids():
+                    # the actuator over its whole travel
+                    ax, travel = B.TRAVEL.get(k, ('b', 0.0))
+                    steps = [0.0] if not travel else list(np.linspace(-travel, travel, 5))
+                    for t in steps:
+                        dv = rot((t, 0) if ax == 'a' else (0, t), fp.angle)
+                        out.append((f'{name} actuator (plastic), over its travel', fp.ref, act.translate(cq.Vector(dv[0], dv[1], 0))))
+            else:
+                out.append((f'other part ({k})', fp.ref, v))
     # the XIAO has no KiCad model: the module and USB-C boxes used by the build
-    for fp in fps.values():
-        if B.kind(fp) == 'xiao':
+    for fp in board.footprints:
+        if fp.side == side and B.kind(fp) == 'xiao':
             for a0, a1, b0, b1, z0, z1 in B.XIAO_BOXES:
                 r = B.local_rect(fp, a0, a1, b0, b1)
                 out.append(('XIAO (module and USB-C, Seeed model extents)', fp.ref,
@@ -181,35 +214,32 @@ def classify(board, side):
 
 
 def pad_list(board, side):
-    """Copper pads (pads.step solids, top-side ones lifted) with their solder allowance."""
-    fps = [f for f in board.footprints if f.side == side]
-    index = [(f, p) for f in fps for p in f.pads if p.copper and p.kind != 'np_thru_hole']
+    """Copper pads from the board file (0.05 mm proud of each face they are on) with the solder
+    fillet envelope the build allows for."""
     out = []
-    for s in P.load_pads():
-        bb = s.BoundingBox()
-        c = ((bb.xmin + bb.xmax) / 2, (bb.ymin + bb.ymax) / 2)
-        if (c[0] < SPLIT_X) != (side == 'L'):
+    for f in board.footprints:
+        if f.side != side:
             continue
-        f, p = min(index, key=lambda fp_: math.dist(fp_[1].at, c))
-        if math.dist(p.at, c) > 0.3:
-            continue
-        st, sb = (0.0, 0.0) if B.kind(f) == 'MountingHole' else B.solder(f, p)
-        nonet = B.kind(f) == 'MountingHole'
-        lab = f'{f.ref} pad {p.number}'
-        def env(allow, top):
-            # the solder fillet the build allows for: the pad grown by the spread, allow mm high
-            if not allow:
-                return None
-            r = B.pad_region(p, B.FILLET_SPREAD)
-            z0 = P.PCB_T + B.COPPER if top else -B.COPPER - allow
-            return cq.Solid.extrudeLinear(r.translate(cq.Vector(0, 0, z0)), cq.Vector(0, 0, allow))
-        if bb.zmin >= P.ABOVE:
-            out.append((P.lifted(s), 'top', env(st, True), lab, nonet))
-        elif bb.zmax <= 0.01:
-            out.append((s, 'bottom', env(sb, False), lab, nonet))
-        else:
-            out.append((P.lifted(s), 'top', env(st, True), lab, nonet))
-            out.append((s, 'bottom', env(sb, False), lab, nonet))
+        for p in f.pads:
+            if not p.copper or p.kind == 'np_thru_hole':
+                continue
+            nonet = B.kind(f) == 'MountingHole'
+            st, sb = (0.0, 0.0) if nonet else B.solder(f, p)
+            lab = f'{f.ref} pad {p.number}'
+            reg = B.pad_region(p, 0)
+
+            def env(allow, top, p=p):
+                if not allow:
+                    return None
+                r = B.pad_region(p, B.FILLET_SPREAD)
+                z0 = P.PCB_T + B.COPPER if top else -B.COPPER - allow
+                return cq.Solid.extrudeLinear(r.translate(cq.Vector(0, 0, z0)), cq.Vector(0, 0, allow))
+            if p.top:
+                cu = cq.Solid.extrudeLinear(reg.translate(cq.Vector(0, 0, P.PCB_T)), cq.Vector(0, 0, B.COPPER))
+                out.append((cu, 'top', env(st, True), lab, nonet))
+            if p.bottom:
+                cu = cq.Solid.extrudeLinear(reg.translate(cq.Vector(0, 0, -B.COPPER)), cq.Vector(0, 0, B.COPPER))
+                out.append((cu, 'bottom', env(sb, False), lab, nonet))
     return out
 
 
@@ -449,13 +479,41 @@ def check(board, side):
     log(side, 'solid analysis done')
 
     # the board
-    brd = board_solid(side)
+    brd = board_solid(board, side)
     rep['board'] = {'top': fmt((*T.dist(brd), 'board')), 'bottom': fmt((*Bo.dist(brd), 'board'))}
+    brn = board_solid(board, side, nubs=True)
+    rep['board_nubs'] = {'top': fmt((*T.dist(brn), 'board with tab nubs')), 'bottom': fmt((*Bo.dist(brn), 'board with tab nubs'))}
     log(side, 'board', rep['board'])
 
     # parts, by category
     cats = {}
-    for cat, ref, s in classify(board, side):
+    parts_list = classify(board, side)
+    # spacers at the no-net mounting pads: where they sit, how close they come to the board, and that
+    # no part is in their way
+    fps = [f for f in board.footprints if f.side == side and B.kind(f) == 'MountingHole']
+    sp = []
+    for f in fps:
+        h = f.at
+        pad_r = max(p.size[0] for p in f.pads) / 2
+        lo = cq.Solid.makeCylinder(B.SPACER_D / 2, B.LOWER_SPACER, cq.Vector(h[0], h[1], B.LOWER_SEAT))
+        up = cq.Solid.makeCylinder(B.SPACER_D / 2, B.UPPER_SPACER, cq.Vector(h[0], h[1], B.UPPER_SEAT - B.UPPER_SPACER))
+        brd_ = board_solid(board, side)
+        gaps = [round(BRepExtrema_DistShapeShape_value(s_, brd_), 3) for s_ in (lo, up)]
+        near = []
+        for cat, ref, s in parts_list:
+            for s_ in (lo, up):
+                bb, bs = s.BoundingBox(), s_.BoundingBox()
+                if bb.xmax < bs.xmin - 3 or bb.xmin > bs.xmax + 3 or bb.ymax < bs.ymin - 3 or bb.ymin > bs.ymax + 3:
+                    continue
+                near.append((BRepExtrema_DistShapeShape_value(s_, s), ref))
+        seat = (round(T.dist(up, 0.5)[0], 3), round(Bo.dist(lo, 0.5)[0], 3))
+        sp.append(dict(at=(round(h[0], 2), round(h[1], 2)), gap_to_board_lower_upper=gaps,
+                       spacer_within_pad=B.SPACER_D / 2 <= pad_r, pad_d=round(2 * pad_r, 2),
+                       nearest_part=(round(min(near)[0], 3), min(near)[1]) if near else None,
+                       seat_contact_top_bottom=seat))
+    rep['spacers'] = sp
+    log(side, 'spacers', sp)
+    for cat, ref, s in parts_list:
         dt, pt = T.dist(s)
         db, pb = Bo.dist(s)
         c = cats.setdefault(cat, {'top': [], 'bottom': [], 'insert': []})
@@ -563,4 +621,5 @@ if __name__ == '__main__':
         rep = check(board, side)
         (W / f'checks_{side}.json').write_text(json.dumps(rep, indent=1, default=str))
     (W / 'checks_mirror.json').write_text(json.dumps(mirror_report(board), indent=1))
+    (W / 'checks_exports.json').write_text(json.dumps(exports_crosscheck(board), indent=1))
     log('done')

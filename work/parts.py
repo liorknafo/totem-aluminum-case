@@ -1,9 +1,14 @@
-"""The KiCad 3D parts (src/comp_all.step, exported from the board with x, -y coordinates) and the
-copper pads (src/pads.step), named by footprint reference.
+"""The KiCad 3D parts and copper pads of the board.
 
-KiCad exports the board core as 1.51 mm thick with the top-side parts sitting on it; the real
-board is 1.6 mm over copper and mask. Top-side geometry is lifted by PCB_T - KICAD_TOP so it sits
-on the 1.6 mm board the case is built around.
+Each footprint's models come straight from its `(model ...)` entries in the board file: the model
+file (src/TOTEM3D), its offset, rotation and scale, placed the way KiCad places them (rotations
+negated and applied about X, then Y, then Z; offset in mm with +y up). Every model sits on the top
+face of the 1.6 mm board (z = PCB_T in the case frame, where the board spans 0..1.6). Moving a
+footprint on the board moves its part and nothing else.
+
+src/comp_all.step (KiCad's own STEP export of the parts) is only used to cross-check this placement:
+`crosscheck()` reports how far the export is from the parts placed from the board file, and calls it
+stale when they disagree.
 """
 import hashlib
 import json
@@ -13,25 +18,160 @@ from pathlib import Path
 
 import cadquery as cq
 import numpy as np
-from OCP.STEPCAFControl import STEPCAFControl_Reader
-from OCP.TCollection import TCollection_ExtendedString
-from OCP.TDataStd import TDataStd_Name
-from OCP.TDF import TDF_LabelSequence
-from OCP.TDocStd import TDocStd_Document
-from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
-from pcb import SPLIT_X
+from pcb import SPLIT_X, one, sub
 
 ROOT = Path(__file__).resolve().parent.parent
-KICAD_TOP = 1.51
 PCB_T = 1.6
-LIFT = PCB_T - KICAD_TOP
-ABOVE = 0.75          # geometry above this z (KiCad frame) sits on the top face
+ABOVE = 0.8           # geometry above the middle of the board belongs to the top side
+TESS_TOL = 0.02
+CACHE = Path(__file__).resolve().parent / 'cache' / 'part_boxes.json'
+
+
+# ----------------------------------------------------------------------------- models
+def model_entries(board):
+    """{footprint lib: [(model path, offset, rotate, scale)]} from the board file."""
+    out = {}
+    for f in sub(board.tree, 'footprint'):
+        if f[1] in out:
+            continue
+        lst = []
+        for m in sub(f, 'model'):
+            if 'hide' in m:
+                continue
+            path = Path(m[1].replace('${KIPRJMOD}', str(ROOT / 'src')))
+            vals = {k: [float(v) for v in one(m, k)[1][1:]] for k in ('offset', 'rotate', 'scale') if one(m, k)}
+            lst.append((path, vals.get('offset', [0, 0, 0]), vals.get('rotate', [0, 0, 0]), vals.get('scale', [1, 1, 1])))
+        out[f[1]] = lst
+    return out
+
+
+def _matrix(rot):
+    """KiCad model rotation: angles negated, applied about X, then Y, then Z."""
+    def R(axis, deg):
+        a = math.radians(-deg)
+        c, s = math.cos(a), math.sin(a)
+        return {'x': np.array([[1, 0, 0], [0, c, -s], [0, s, c]]),
+                'y': np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]),
+                'z': np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])}[axis]
+    return R('z', rot[2]) @ R('y', rot[1]) @ R('x', rot[0])
+
+
+def _transform(shape, M, t):
+    from OCP.gp import gp_Trsf
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
+    tr = gp_Trsf()
+    tr.SetValues(*M[0], t[0], *M[1], t[1], *M[2], t[2])
+    return cq.Shape.cast(BRepBuilderAPI_Transform(shape.wrapped, tr, True).Shape())
 
 
 @lru_cache(maxsize=None)
-def load_parts():
-    """[(ref, side, shape)] for every part model in comp_all.step (KiCad frame, not lifted)."""
+def _model_file(path):
+    return cq.importers.importStep(str(path)).val()
+
+
+_TEMPLATES = {}
+
+
+def template(board, lib):
+    """The footprint's model solids in its own frame: x, y = footprint-local (KiCad x, -y),
+    z in the case frame (the board's top face at PCB_T)."""
+    if lib not in _TEMPLATES:
+        sols = []
+        for path, off, rot, scale in model_entries(board).get(lib, []):
+            assert all(abs(s - 1) < 1e-9 for s in scale), (lib, 'scaled models are not handled')
+            s = _transform(_model_file(path), _matrix(rot), (off[0], off[1], off[2] + PCB_T))
+            sols += s.Solids()
+        _TEMPLATES[lib] = sols
+    return _TEMPLATES[lib]
+
+
+def place(shape, fp):
+    return shape.rotate(cq.Vector(), cq.Vector(0, 0, 1), fp.angle).translate(cq.Vector(fp.at[0], fp.at[1], 0))
+
+
+def placed(board, fp):
+    """The footprint's part solids where the board file puts them (case frame)."""
+    return [place(s, fp) for s in template(board, fp.lib)]
+
+
+# ----------------------------------------------------------------------------- boxes for the build
+def _boxes_of(solids):
+    out = []
+    for k, s in enumerate(solids):
+        v, _ = s.tessellate(TESS_TOL, 0.3)
+        P = np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()])
+        a, b, z = P[:, 0], P[:, 1], P[:, 2]
+        for below, m in ((True, z < ABOVE), (False, z >= ABOVE)):
+            if m.sum() < 2:
+                continue
+            e = TESS_TOL   # tessellation points lie on the surface; chords may cut inside by up to this
+            out.append(dict(a0=float(a[m].min() - e), a1=float(a[m].max() + e), b0=float(b[m].min() - e),
+                            b1=float(b[m].max() + e), z0=float(z[m].min() - e), z1=float(z[m].max() + e),
+                            below=below, solid=k))
+    return out
+
+
+def _sha(*paths):
+    h = hashlib.sha256()
+    for p in paths:
+        h.update(Path(p).read_bytes())
+    return h.hexdigest()
+
+
+def lib_boxes(board):
+    """{footprint lib: boxes around its model solids, split at the middle of the board} in the
+    footprint's frame. Cached in work/cache/part_boxes.json, keyed by the model files and their
+    placement entries (footprint positions do not change the boxes)."""
+    ents = model_entries(board)
+    files = sorted({str(p) for lst in ents.values() for p, *_ in lst if p.exists()})
+    key = _sha(*files) + json.dumps({k: [(p.name, o, r, s) for p, o, r, s in v] for k, v in sorted(ents.items())}) \
+        + f'-{TESS_TOL}-{PCB_T}-{ABOVE}'
+    key = hashlib.sha256(key.encode()).hexdigest()
+    if CACHE.exists():
+        c = json.loads(CACHE.read_text())
+        if c.get('key') == key:
+            return c['boxes']
+    boxes = {lib: _boxes_of(template(board, lib)) for lib in ents}
+    CACHE.parent.mkdir(exist_ok=True)
+    CACHE.write_text(json.dumps(dict(key=key, boxes=boxes)))
+    return boxes
+
+
+def front_box(board, lib, axis, val, sgn):
+    """Box (in the footprint frame) around the part of the model beyond `axis` = `val` on the
+    side `sgn` (an actuator ahead of the body), from the model's surface points."""
+    pts = []
+    for s in template(board, lib):
+        v, _ = s.tessellate(TESS_TOL, 0.3)
+        pts += [q.toTuple() for q in v] + [q.toTuple() for q in s.Vertices()]
+    P = np.array(pts)
+    c = P[:, 0] if axis == 'a' else P[:, 1]
+    m = (c - val) * sgn > 1e-9
+    m &= P[:, 2] >= ABOVE
+    if not m.any():
+        return None
+    e = TESS_TOL
+    bx = dict(a0=float(P[m, 0].min() - e), a1=float(P[m, 0].max() + e), b0=float(P[m, 1].min() - e),
+              b1=float(P[m, 1].max() + e), z0=float(P[m, 2].min() - e), z1=float(P[m, 2].max() + e), below=False)
+    # the actuator reaches back to the body: extend the box to the split plane
+    if sgn > 0:
+        bx[axis + '0'] = min(bx[axis + '0'], val)
+    else:
+        bx[axis + '1'] = max(bx[axis + '1'], val)
+    return bx
+
+
+# ----------------------------------------------------------------------------- KiCad's export, pads
+@lru_cache(maxsize=None)
+def load_export():
+    """[(ref, side, shape)] from src/comp_all.step (KiCad's STEP export of the parts)."""
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDF import TDF_LabelSequence
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
     doc = TDocStd_Document(TCollection_ExtendedString('d'))
     r = STEPCAFControl_Reader()
     r.SetNameMode(True)
@@ -56,81 +196,33 @@ def load_parts():
     return out
 
 
-def lifted(shape):
-    """Top-side geometry on the 1.6 mm board."""
-    return shape.translate(cq.Vector(0, 0, LIFT))
-
-
-@lru_cache(maxsize=None)
-def solids_of(ref, side):
-    return tuple(s for n, sd, shp in load_parts() if n == ref and sd == side for s in shp.Solids())
-
-
-def local_boxes(fp):
-    """Boxes around the part's solids in the footprint frame (case-local a, b; z in the case frame,
-    top-side portions lifted). Each solid is split into its portion below the board and its portion
-    above it. Returns [dict(a0, a1, b0, b1, z0, z1, below, solid)]."""
-    out = []
-    for k, s in enumerate(solids_of(fp.ref, fp.side)):
-        a, b, z = _local_points(fp, k, s)
-        for below, m in ((True, z < ABOVE), (False, z >= ABOVE)):
-            if m.sum() < 2:
-                continue
-            zz = z[m] + (0.0 if below else LIFT)
-            e = TESS_TOL   # tessellation points lie on the surface; chords may cut inside by up to this
-            out.append(dict(a0=a[m].min() - e, a1=a[m].max() + e, b0=b[m].min() - e, b1=b[m].max() + e,
-                            z0=zz.min() - e, z1=zz.max() + e, below=below, solid=k))
-    return out
-
-
-TESS_TOL = 0.02
-_LOCAL = {}
-
-
-def _local_points(fp, k, s):
-    """Surface points of a part solid in its footprint frame. Every instance of a footprint carries
-    the same model, so the points are computed once per footprint type and solid."""
-    key = (fp.lib, k, round(s.Volume(), 3))
-    if key not in _LOCAL:
-        v, _ = s.tessellate(TESS_TOL, 0.3)
-        Pt = np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()])
-        ang = -math.radians(fp.angle)
-        ca, sa = math.cos(ang), math.sin(ang)
-        d = Pt[:, :2] - np.array(fp.at)
-        _LOCAL[key] = (d[:, 0] * ca - d[:, 1] * sa, d[:, 0] * sa + d[:, 1] * ca, Pt[:, 2])
-    return _LOCAL[key]
-
-
-CACHE = Path(__file__).resolve().parent / 'cache' / 'part_boxes.json'
-
-
-def _sha(*paths):
-    h = hashlib.sha256()
-    for p in paths:
-        h.update(Path(p).read_bytes())
-    return h.hexdigest()
-
-
-def lib_boxes(board):
-    """local_boxes() for one footprint of every type (all instances of a footprint carry the same
-    model in their own frame). Cached in work/cache/part_boxes.json, keyed by the hash of the board
-    and the part models, so a build only reads the 3D models when they change."""
-    key = _sha(ROOT / 'src' / 'comp_all.step', ROOT / 'src' / 'totem_0_3.kicad_pcb') + f'-{TESS_TOL}-{LIFT}'
-    if CACHE.exists():
-        c = json.loads(CACHE.read_text())
-        if c.get('key') == key:
-            return c['boxes']
-    boxes = {}
+def crosscheck(board):
+    """Compare the parts placed from the board file with KiCad's export: the largest sideways
+    difference of any part's box, the export's z offsets, and the parts that differ by more than
+    0.05 mm sideways (a stale export)."""
+    exp = {}
+    for ref, side, shp in load_export():
+        exp.setdefault((ref, side), []).append(shp)
+    worst, dz, stale = 0.0, set(), []
     for fp in board.footprints:
-        if fp.lib not in boxes:
-            boxes[fp.lib] = [{k: (float(v) if not isinstance(v, bool) else v) for k, v in bx.items()}
-                             for bx in local_boxes(fp)]
-    CACHE.parent.mkdir(exist_ok=True)
-    CACHE.write_text(json.dumps(dict(key=key, boxes=boxes)))
-    return boxes
+        sols = placed(board, fp)
+        if not sols:
+            continue
+        bb = cq.Compound.makeCompound(sols).BoundingBox()
+        shapes = exp.get((fp.ref, fp.side), [])
+        if not shapes:
+            stale.append(f'{fp.ref} ({fp.side}, missing)')
+            continue
+        x = cq.Compound.makeCompound(shapes).BoundingBox()
+        e = max(abs(bb.xmin - x.xmin), abs(bb.xmax - x.xmax), abs(bb.ymin - x.ymin), abs(bb.ymax - x.ymax))
+        dz.add(round(bb.zmin - x.zmin, 3))
+        worst = max(worst, e)
+        if e > 0.05:
+            stale.append(f'{fp.ref} ({fp.side}, {e:.2f} mm)')
+    return dict(max_xy=round(worst, 4), z_offsets=sorted(dz), stale=stale)
 
 
 @lru_cache(maxsize=None)
 def load_pads():
-    """Copper pad solids (KiCad frame)."""
+    """Copper pad solids from src/pads.step (KiCad frame: top copper on a 1.51 mm core)."""
     return cq.importers.importStep(str(ROOT / 'src' / 'pads.step')).val().Solids()

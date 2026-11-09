@@ -49,6 +49,8 @@ def main():
 
     row('Top to board', '≥ 0.50', lambda r: r['board']['top']['d'])
     row('Bottom to board', '≥ 0.50', lambda r: r['board']['bottom']['d'])
+    row(f'Top to board with {B.TAB_NUB} mm tab nubs', '≥ 0.50', lambda r: r['board_nubs']['top']['d'])
+    row(f'Bottom to board with {B.TAB_NUB} mm tab nubs', '≥ 0.50', lambda r: r['board_nubs']['bottom']['d'])
     row('Top to copper pads', '≥ 0.50', lambda r: r['pads']['top']['d'])
     row('Bottom to copper pads', '≥ 0.50', lambda r: r['pads']['bottom']['d'])
     row('Top to solder fillets (allowance envelopes on the pads)', '≥ 0.50', lambda r: r['pads_solder_margin']['top']['d'])
@@ -58,7 +60,7 @@ def main():
         plastic = 'plastic' in cat
         diode = cat.startswith('diode (whole')
         for part in ('top', 'bottom'):
-            req = '≥ 0.30' if diode and part == 'top' else ('fit' if cat.startswith('switch body') else ('≥ 0.30' if plastic else '≥ 0.50'))
+            req = '≥ 0.30' if diode and part == 'top' else '≥ 0.50'
             row(f'{part.capitalize()} to {cat}', req, lambda r, cat=cat, part=part: r['parts'][cat][part]['d'])
         if 'XIAO' in cat:
             row('Wood insert to XIAO', 'no contact', lambda r, cat=cat: r['parts'][cat]['insert']['d'])
@@ -70,8 +72,28 @@ def main():
     w('TRRS footprint (not fitted). A fillet may spread 0.3 mm beyond its pad.')
     w('')
     w('The plastic switch bodies clip into the 13.8 mm plate cut-outs (a fit, not a clearance); their pins')
-    w('under the board keep the rule. The diodes may come to 0.30 mm on top of their epoxy body; their leads and sides')
-    w('keep 0.50. The power slider knob and the reset plunger are plastic and sit in their openings.')
+    w('under the board keep the rule. The diodes may come to 0.30 mm on top of their epoxy body; their leads and')
+    w('sides keep 0.50. The power slider knob (measured at five places over ±1.5 mm of travel) and the reset')
+    w('plunger keep 0.50 in their openings, like everything else.')
+    w('')
+    w('Parts are placed from the board file: each footprint\'s 3D models (`src/TOTEM3D`) with the offset')
+    w('and rotation of its `(model ...)` entry, on the top face of the 1.6 mm board. KiCad\'s own exports')
+    w('in `src/` are only compared against that (see the end of this file).')
+    w('')
+    w('## Spacers at the mounting pads')
+    w('')
+    w(f'Each no-net mounting pad gets an insulating spacer (Ø ≤ {B.SPACER_D} mm) above and below the board: a')
+    w(f'{B.UPPER_SPACER} mm one in a Ø{B.SEAT_D} seat in the top and a {B.LOWER_SPACER} mm one in a Ø{B.SEAT_D} seat in the floor.')
+    w(f'Both stop {B.SPACER_GAP} mm from the pad copper, so the board can move no more than that at the pads.')
+    w('')
+    w('| Side | Mounting hole | Spacer gap to the board (below, above) | Within the pad | Nearest part | Seated (top, bottom) |')
+    w('|---|---|---|---|---|---|')
+    for s in 'LR':
+        for sp in c[s].get('spacers', []):
+            npart = f"{sp['nearest_part'][0]:.2f} mm ({sp['nearest_part'][1]})" if sp['nearest_part'] else '> 3 mm'
+            w(f"| {s} | ({sp['at'][0]}, {sp['at'][1]}) | {sp['gap_to_board_lower_upper'][0]:.2f}, {sp['gap_to_board_lower_upper'][1]:.2f} mm "
+              f"| {'yes' if sp['spacer_within_pad'] else 'NO'} (pad Ø{sp['pad_d']}) | {npart} | "
+              f"{sp['seat_contact_top_bottom'][0]:.2f}, {sp['seat_contact_top_bottom'][1]:.2f} mm |")
     w('')
     w('## Assembly')
     w('')
@@ -141,6 +163,22 @@ def main():
       'The right half is not a mirror of the left: the parts are the same footprints placed on the same '
       'face (sockets, power switch, reset button are not mirrored) and some positions differ. Both halves '
       'are built from the board the same way.')
+    w('')
+    w('## KiCad exports compared with the board file')
+    w('')
+    try:
+        ex = load('checks_exports.json')
+        pc = ex['parts (comp_all.step)']
+        w(f"- `comp_all.step`: largest sideways difference of a part's box {pc['max_xy']} mm; z offsets of the export "
+          f"{pc['z_offsets']} mm (the parts here sit on the 1.6 mm board's top face; the export puts them that much lower); stale parts: "
+          + (', '.join(pc['stale']) if pc['stale'] else 'none'))
+        bo = ex['board outline (pcb_board.step)']
+        w(f"- `pcb_board.step`: the outline from the board file is at most {bo['max_distance']} mm from the export's outline (tab openings aside; the export's cut-outs also include the drilled holes, which the checks leave in the board, so they measure against more board, not less)")
+        pd = ex['pads (pads.step)']
+        w(f"- `pads.step`: {pd['n_board']} copper pads in the board file ({pd['n_export']} exported pad solids, through-hole pads once per face); "
+          f"the largest distance from a pad's centre to an exported pad's centre is {pd['max_centre_offset']} mm")
+    except FileNotFoundError:
+        w('- (not run)')
     w('')
     w('## Build')
     w('')

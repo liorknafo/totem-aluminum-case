@@ -36,9 +36,10 @@ are drawn as plain blocks.
   the lowest socket. It also has a pocket for a 15 × 22 × 7.5 mm LiPo. From below: two recesses for
   the adhesive tenting feet (4.1 mm deep), five Ø9 mm rubber-feet recesses, and four counterbored
   screw holes. The screw holes are the only openings through the part.
-- **Assembly:** the board hangs from the switches clipped into the top plate. Four M2 × 12 socket-head
-  screws per half go in from below, through the four no-net mounting pads of the board, into M2
-  threads tapped in the top. Top and bottom meet on a flat seam at z 0.6.
+- **Assembly:** the board is held by the switches clipped into the top plate and by insulating spacers
+  above and below its four no-net mounting pads. The spacers sit in shallow seats and stop 0.1 mm
+  from the pads. Four M2 × 12 socket-head screws per half go in from below, through the spacers and
+  the mounting holes, into M2 threads tapped in the top. Top and bottom meet on a flat seam at z 0.6.
 
 `outputs/README.md` has the details and the machining notes; `outputs/CHECKS.md` has the measured
 clearances, thicknesses and solid checks.
@@ -54,8 +55,8 @@ clearances, thicknesses and solid checks.
     three.js from unpkg.com)
 - `work/`: the scripts
   - `build.py`: the model, with every parameter at the top; regenerates the six STEP files from the board
-  - `pcb.py` (reads the KiCad board), `parts.py` (KiCad 3D parts and pads), `geom2d.py` (exact 2D
-    regions and offsets on OpenCASCADE)
+  - `pcb.py` (reads the KiCad board), `parts.py` (the 3D part models placed from the board file),
+    `geom2d.py` (exact 2D regions and offsets on OpenCASCADE)
   - `check.py` and `report.py`: checks and `outputs/CHECKS.md`; `check_all.sh` runs every check and picture
   - `render.py`, `maps.py`, `scene.py`, `export_view.py`: renders, sections, clearance maps, 3D view
   - `orig/`: the original case files, kept for reference only (the build does not read them)
@@ -72,8 +73,9 @@ python -E -s build.py              # both halves, about 30 s; or: build.py L / b
 PYTHON=python ./check_all.sh       # checks, CHECKS.md, pictures and the 3D view
 ```
 
-The first build reads the 3D part models and caches the part boxes in `work/cache/`. The cache is
-keyed by the hashes of the board and model files.
+The first build reads the 3D part models and caches their boxes in `work/cache/`. The cache is keyed
+by the model files and the model entries of the footprints, so moving a footprint does not invalidate
+it.
 
 ## License
 

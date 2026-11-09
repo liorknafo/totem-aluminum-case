@@ -40,7 +40,6 @@ SOLDER_THT_FAR = 1.0    # solder on the soldered side of a through-hole pad
 SOLDER_THT_NEAR = 0.3   # solder pushed through to the component side of a through-hole pad
 FILLET_SPREAD = 0.3     # a fillet spreads this far beyond its pad
 DIODE_TOP_GAP = 0.3     # above the diodes' epoxy bodies (an insulator; their metal keeps C)
-PLASTIC_GAP = 0.3       # around plastic actuators that reach into an opening (reset plunger)
 
 # --- machining
 R_MILL = 1.0            # smallest end mill: Ø2 flat (pockets, slots, corner reliefs)
@@ -91,17 +90,28 @@ ROOF_Z = Z_TOP - ROOF_T
 # --- openings through the side wall, cut from below (footprint frame a, b; z = top of the opening)
 NOTCHES = {
     'MSK12C02': dict(a=(-9.0, 0.0), b=(-7.5, -1.5), z=3.4),     # power slider, 6 mm wide for its travel
-    'SKHLLCA010': dict(a=(-1.8, 1.8), b=(3.5, 9.0), z=5.3),     # reset plunger: 3.6 mm slot for a pin
+    'SKHLLCA010': dict(a=(-2.0, 2.0), b=(3.5, 9.0), z=None),    # reset plunger: 4.0 mm slot for a pin
     'xiao': dict(a=(-6.5, 6.5), b=(8.0, 16.0), z=8.2),          # USB-C plug, 13 mm wide
 }
 FRONT = {'MSK12C02': ('a', -0.1, -1), 'SKHLLCA010': ('b', 4.05, +1)}   # plastic actuators ahead of the body
+TRAVEL = {'MSK12C02': ('b', 1.5)}   # the slider knob moves up to 1.5 mm either way along the switch
+# (z=None: the top of the opening is C above the actuator. Every actuator keeps C over its travel.)
 
 # --- screws: M2 socket head from below, through the no-net mounting pads, into M2 threads in the top
 CLEAR_D = 2.4
 CBORE_D = 4.4           # counterbore for the M2 head (Ø3.8)
 CBORE_SEAT = -5.2       # head seat; the head (2.0) stays inside even in a leg recess (roof -7.3)
 TAP_D = 1.6             # M2 tap drill
-TAP_DEPTH = 5.5         # thread 2.45 .. 7.45 (M2x12 screws end at 6.8)
+TAP_DEPTH = 5.5         # thread from the upper spacer seat (2.75 .. 8.25; M2x12 screws end at 6.8)
+# spacers at the no-net mounting pads (insulating, e.g. nylon, OD <= SPACER_D): they stop SPACER_GAP
+# from the pad copper above and below the board and sit in shallow seats in the roof and the floor
+SPACER_D = 5.0
+SEAT_D = 5.4
+SPACER_GAP = 0.1
+UPPER_SPACER = 1.0      # between the board and the top
+LOWER_SPACER = 3.0      # between the bottom and the board
+UPPER_SEAT = P.PCB_T + COPPER + SPACER_GAP + UPPER_SPACER      # 2.75
+LOWER_SEAT = -COPPER - SPACER_GAP - LOWER_SPACER               # -3.15
 SCREW_KEEP = 2.5        # wells keep this far from a screw axis
 
 # --- bottom: battery, tenting legs, feet (left-half positions; the right half is mirrored)
@@ -236,20 +246,14 @@ def keepouts(board, side):
 
 
 def front_boxes(board, side):
-    """The plastic actuators (power slider knob, reset plunger) as local boxes, for the checks."""
+    """The plastic actuators (power slider knob, reset plunger) as boxes in their footprint frame."""
     out = []
     for fp in board.footprints:
         if fp.side != side or kind(fp) not in FRONT:
             continue
-        axis, val, sgn = FRONT[kind(fp)]
-        for bx in P.lib_boxes(board)[fp.lib]:
-            if bx['below']:
-                continue
-            lo, hi = bx[axis + '0'], bx[axis + '1']
-            if sgn < 0 and lo < val:
-                f = dict(bx); f[axis + '1'] = min(hi, val); out.append((fp, f))
-            if sgn > 0 and hi > val:
-                f = dict(bx); f[axis + '0'] = max(lo, val); out.append((fp, f))
+        bx = P.front_box(board, fp.lib, *FRONT[kind(fp)])
+        if bx:
+            out.append((fp, bx))
     return out
 
 
@@ -296,10 +300,17 @@ def design(board, side):
     tall = [dict(it) for it in above if it['z'] > PLATE_BOT + 1e-6]
     # notches through the wall (open at the seam) and the wood flange recess under the roof take
     # part in the same merge, so no thin fins stand between neighbouring pockets
+    acts = front_boxes(board, side)
     for fp in fps:
         n = NOTCHES.get(kind(fp))
         if n:
-            tall.append(dict(ref=fp.ref + ' opening', what='opening', region=local_rect(fp, *n['a'], *n['b']), z=n['z']))
+            z = n['z']
+            if z is None:
+                z = max(bx['z1'] for f2, bx in acts if f2.ref == fp.ref) + C
+            tall.append(dict(ref=fp.ref + ' opening', what='opening', region=local_rect(fp, *n['a'], *n['b']), z=z))
+    # seats for the upper spacers in the roof
+    for h in holes:
+        tall.append(dict(ref='spacer seat', what='seat', region=g.circle(h, SEAT_D / 2), z=UPPER_SEAT))
     wa0, wa1, wb0, wb1 = WINDOW
     R = WINDOW_R
     fl = local_rect(xiao, wa0 - FLANGE + R, wa1 + FLANGE - R, wb0 - FLANGE + R, wb1 + FLANGE - R, R + FLANGE_GAP)
@@ -311,6 +322,18 @@ def design(board, side):
         reg = g.mill_fix(reg, R_MILL, keep_out=outline)
         pockets.append(dict(region=reg, z=z, what=sorted({it['ref'] for it in items if abs(it['z'] - z) < 1e-6})))
     d['pockets'] = pockets
+    # every plastic actuator, over its travel and grown by C, lies in openings at least C above it
+    for fp, bx in acts:
+        ax, t = TRAVEL.get(kind(fp), ('b', 0.0))
+        a0, a1, b0, b1 = bx['a0'] - C, bx['a1'] + C, bx['b0'] - C, bx['b1'] + C
+        if ax == 'a':
+            a0, a1 = a0 - t, a1 + t
+        else:
+            b0, b1 = b0 - t, b1 + t
+        need = g.inter(local_rect(fp, a0, a1, b0, b1), outline)
+        room = g.union(*[p['region'] for p in pockets if p['z'] >= bx['z1'] + C - 1e-6])
+        short = g.area(g.diff(need, room))
+        assert short < 1e-3 and bx['z0'] - C >= Z_SEAM, f'{fp.ref}: actuator closer than {C} mm ({short:.3f} mm²)'
     d['window'] = g.union(local_rect(xiao, wa0 + R, wa1 - R, wb0 + R, wb1 - R, R))
 
     # ---- top: wells from above. Keycap wells, then the deck is kept around tall pockets (T_MIN
@@ -435,7 +458,7 @@ def make_top(d):
     tools += prisms(d['wells'], WELL_FLOOR, Z_TOP + 1)
     tools += prisms(d['window'], ROOF_Z - 0.5, Z_TOP + 1)
     for h in d['holes']:
-        tools.append(hole(h, TAP_D, PLATE_BOT - 0.5, PLATE_BOT + TAP_DEPTH))
+        tools.append(hole(h, TAP_D, UPPER_SEAT - 0.5, UPPER_SEAT + TAP_DEPTH))
     blank = prisms(d['outline'], Z_SEAM, Z_TOP)[0]
     sols = cut(blank, tools)
     return sols, len(tools)
@@ -451,6 +474,7 @@ def make_bottom(d):
     tools += prisms(d['feet'], Z_BOT - 1, Z_BOT + FOOT_DEPTH)
     for h in d['holes']:
         tools.append(hole(h, CLEAR_D, Z_BOT - 1, FLOOR + 0.5))
+        tools.append(hole(h, SEAT_D, LOWER_SEAT, FLOOR + 0.5))
         tools.append(hole(h, CBORE_D, Z_BOT - 1, CBORE_SEAT))
     blank = prisms(d['outline'], Z_BOT, Z_SEAM)[0]
     sols = cut(blank, tools)

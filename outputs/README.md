@@ -30,12 +30,19 @@ Two exceptions, neither electrical:
 - the epoxy top of each diode keeps 0.3 mm (its metal leads keep 0.5 mm);
 - the plastic switch bodies clip into the top plate: 13.8 mm cut-outs in a 1.2 mm clip ledge.
 
-The plastic power-slider knob and reset plunger sit in their openings in the back wall.
+The plastic power-slider knob and the reset plunger keep 0.5 mm too: the knob over its whole travel
+(±1.5 mm along the switch), the plunger in its slot.
 
 Where the panel tabs between the halves are snapped off, up to 0.3 mm of tab may stay proud of the
 board edge; the case allows for it.
 
 ## The design
+
+**Parts.** Every part comes from the board file: each footprint's 3D models (`src/TOTEM3D`) placed
+with the offset and rotation of its `(model ...)` entry, the way KiCad places them, on the top face of
+the 1.6 mm board. Moving a footprint on the board and rebuilding moves its pocket and nothing else.
+KiCad's STEP exports in `src/` are only compared against this in `CHECKS.md`. The XIAO has no
+model on the board: it is the Seeed module's size (17.5 × 21 mm, 4.27 mm tall with its USB-C port).
 
 **Outline.** The board outline grown by 2.3 mm: a 0.5 mm gap plus a 1.8 mm wall. Inside corners of
 the outline are rounded to R3. The outline grows around the reset button, which overhangs the board
@@ -55,21 +62,22 @@ within 0.005 mm, so the walls stay cylindrical.
   switch's square corners.
 - The underside is a single cavity at 2.45, which is 0.85 mm above the board (0.80 mm above its
   copper). Above that, blind pockets from below rise only as high as each item needs:
-  - diodes: 3.14 over the epoxy, 2.75 over their pads;
+  - diodes: 3.07 over the epoxy (0.3 mm above it), 2.75 over their pads;
   - solder on SMD pads and on the XIAO and battery-wire pads: 3.15;
-  - power switch: 3.6;
-  - XIAO: 6.43;
-  - reset button: 6.5.
+  - power switch: 3.52;
+  - reset button: 5.65 to 6.42;
+  - XIAO: 6.43.
 - Openings in the back wall, open at the seam and cut from below:
   - the USB-C port: 13 mm wide, up to 8.2;
   - the power slider: 6 mm wide for its travel, up to 3.4;
-  - the reset plunger: a 3.6 mm slot up to 5.3, for a pin or paper clip.
+  - the reset plunger: a 4.0 mm slot up to 5.42, for a pin or paper clip.
 - Window over the XIAO: 14 × 18.3 mm (R2) through the 1.5 mm roof, from the far end of the module
   to just short of the USB-C end. The wood insert closes it: a plug in the roof with a 1.5 mm flange
   under it, 3 mm wood in all. The flange sits in a recess 0.2 mm larger all round. The insert keeps
   1.6 mm from the XIAO.
-- Four M2 holes for the screws: Ø1.6 tap drill from the cavity roof, 5.5 mm deep. The wells keep
-  2.5 mm away from each screw axis, so there is solid material around the thread.
+- At each mounting pad: a Ø5.4 seat for the upper spacer, 0.3 mm deep in the roof (up to 2.75), and
+  above it the M2 thread: Ø1.6 tap drill, 5.5 mm deep. The wells keep 2.5 mm away from each screw
+  axis, so there is solid material around the thread.
 
 **Bottom** (z −11.4 to 0.6):
 
@@ -85,25 +93,34 @@ within 0.005 mm, so the walls stay cylindrical.
   - five Ø9 × 0.4 mm recesses for 8.5 mm rubber feet;
   - the four screw holes: Ø2.4 through, counterbored Ø4.4 up to z −5.2 for the screw heads, so the
     head stays inside even in a leg recess.
+- At each mounting pad, from above: a Ø5.4 seat for the lower spacer, 0.55 mm into the floor (down to
+  −3.15).
 - The screw holes are the only openings through the bottom.
 
 **Assembly.**
 
-- The board hangs from its 19 switches, clipped into the top plate. Nothing else touches it.
+- The board is held by its 19 switches, clipped into the top plate, and by four pairs of insulating
+  spacers at its no-net mounting pads. Each pair is a 1.0 mm spacer above the board and a 3.0 mm
+  spacer below it, both Ø4 to Ø5 (nylon M2 spacers or washers). They sit in their seats and stop
+  0.1 mm from the pad copper, so the board cannot move more than that at the pads, as in the
+  original design. Only the no-net pads are under them.
 - Four M2 × 12 socket-head cap screws (ISO 4762) per half go in from below. Each passes through a
-  counterbore, the bottom, the board's Ø3.2 no-net mounting hole (0.6 mm clear all round) and into
-  the thread in the top (4.4 mm of thread engaged).
-- Top and bottom meet on a flat seam at z 0.6, about 363 mm² of contact.
+  counterbore, the bottom, the lower spacer, the board's Ø3.2 no-net mounting hole (0.6 mm clear all
+  round), the upper spacer, and into the thread in the top (4.0 mm of thread engaged).
+- Top and bottom meet on a flat seam at z 0.6, about 360 mm² of contact, which takes the screws'
+  clamping force. The spacers only locate the board.
 
 *Change from the earlier aluminum version:* that version had aluminum bosses that came down to 0.1 mm
-from each mounting pad, with M2 standoffs. Every mounting hole is only about 3.5 mm from the board
-edge. A Ø2 mm end mill cannot cut the narrow gap between such a boss and the side wall, and what it
-leaves would be aluminum within 0.5 mm of the board. So the bosses are gone, and the tapped top does
-the job of the standoffs.
+from each mounting pad. Every mounting hole is only about 3.5 mm from the board edge. A Ø2 mm end mill
+cannot cut the narrow gap between such a boss and the side wall, and what it leaves would be aluminum
+within 0.5 mm of the board. So the standoffs are separate insulating spacers instead, in shallow
+seats that keep the aluminum 0.5 mm from the board.
 
 **Hardware per half:**
 
 - 4 × M2 × 12 socket-head screws;
+- 4 × M2 spacers, Ø4 to Ø5 × 3.0 mm, and 4 × Ø4 to Ø5 × 1.0 mm (a spacer or a stack of washers),
+  insulating (nylon);
 - 5 × 8.5 mm rubber feet;
 - 2 adhesive tenting feet (as for the original tenting case);
 - a LiPo of up to 15 × 22 × 7.5 mm.
@@ -123,6 +140,7 @@ mills they need:
 | Feature | Inside corner radius | End mill |
 |---|---|---|
 | Cavities, pockets, wall openings, switch-zone corners, cut-out reliefs | ≥ 1.05 | Ø2 flat (smallest) |
+| Spacer seats | 2.7 (Ø5.4 round) | Ø2 to Ø4 |
 | Key wells | 1.5 | Ø3 flat |
 | Battery pocket | 1.5 | Ø3 |
 | Window | 2.0 (plug 1.9) | Ø3 or Ø4 |
@@ -137,7 +155,7 @@ Top (1/2" plate, 9.9 mm finished, 0.4 mm to face on each side):
 
 1. **Underside up.** Face to the seam (z 0.6). Pocket the cavity to 2.45 and the blind pockets to
    their heights; the deepest is the wood-flange recess at 9.0, 8.4 mm from the seam face. Cut the
-   wall openings. Cut the 13.8 mm switch cut-outs and their reliefs through the plate, Ø2, 3.05 mm
+   wall openings and the upper spacer seats. Cut the 13.8 mm switch cut-outs and their reliefs through the plate, Ø2, 3.05 mm
    deep from this side. Drill and tap the four M2 holes.
 2. **Top up.** Face to 10.5. Cut the key wells to 4.25 (Ø3, 6.25 deep), then the switch zones to 3.65
    (Ø2: their corners need 6.85 mm of reach, so use a long-reach or reduced-neck end mill). Cut the
@@ -145,14 +163,15 @@ Top (1/2" plate, 9.9 mm finished, 0.4 mm to face on each side):
 
 Bottom (7/8" plate, 12.0 mm finished):
 
-1. **Inside up.** Face to the seam (z 0.6). Pocket the cavity to −2.6, the battery pocket to −9.7 and
-   the shallow cut for the overhanging socket contact. Drill Ø2.4 through.
+1. **Inside up.** Face to the seam (z 0.6). Pocket the cavity to −2.6, the battery pocket to −9.7, the
+   lower spacer seats to −3.15 and the shallow cut for the overhanging socket contact. Drill Ø2.4
+   through.
 2. **Underside up.** Face to −11.4. Cut the leg recesses (4.1 deep), the feet recesses (0.4) and the
    counterbores up to −5.2.
 
 Thinnest walls, floors and roofs (`CHECKS.md` has the full list):
 
-- 0.78 mm (left) and 0.80 mm (right) of plate between the pocket over diode DL16/DR16 and the switch
+- 0.84 mm (left) and 0.86 mm (right) of plate between the pocket over diode DL16/DR16 and the switch
   zone of SWL16/SWR16: that diode sits 0.8 mm from the switch housing. Take a light finishing pass there.
 - Everything else is at least 0.87 mm.
 - The switch clip ledge is 1.2 mm.

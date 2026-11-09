@@ -57,18 +57,13 @@ def board():
 
 @lru_cache(maxsize=None)
 def local_model(lib, select):
-    """Mesh of one footprint type's model in its footprint frame (top-side solids lifted).
+    """Mesh of one footprint type's models in its footprint frame (as placed from the board file).
     select: 'switch' (switch body), 'socket', or 'all'."""
-    fp = next(f for f in board().footprints if f.lib == lib)
     meshes = []
-    for s in P.solids_of(fp.ref, fp.side):
-        bb = s.BoundingBox()
-        is_switch = 'Kailh_socket' in lib and bb.zmax > 1.2      # the sockets end inside the board
+    for s in P.template(board(), lib):
+        is_switch = 'Kailh_socket' in lib and s.BoundingBox().zmax > P.PCB_T + 0.4   # sockets end in the board
         if select == 'switch' and not is_switch or select == 'socket' and is_switch:
             continue
-        if bb.zmax > P.KICAD_TOP + 0.01:
-            s = P.lifted(s)
-        s = s.translate(cq.Vector(-fp.at[0], -fp.at[1], 0)).rotate(cq.Vector(), cq.Vector(0, 0, 1), -fp.angle)
         meshes.append(tess(s, 0.06))
     return merge(meshes)
 
@@ -115,7 +110,9 @@ def layers(side):
     for h in d['holes']:
         head = cq.Solid.makeCylinder(1.9, 2.0, cq.Vector(h[0], h[1], B.CBORE_SEAT - 2.0))
         shank = cq.Solid.makeCylinder(1.0, 12.0, cq.Vector(h[0], h[1], B.CBORE_SEAT))
-        scr += [tess(head), tess(shank)]
+        lo = cq.Solid.makeCylinder(2.0, B.LOWER_SPACER, cq.Vector(h[0], h[1], B.LOWER_SEAT))
+        up = cq.Solid.makeCylinder(2.0, B.UPPER_SPACER, cq.Vector(h[0], h[1], B.UPPER_SEAT - B.UPPER_SPACER))
+        scr += [tess(head), tess(shank), tess(lo), tess(up)]
     L['screws'] = merge(scr)
     return L
 
