@@ -28,7 +28,7 @@ are drawn as plain blocks.
   132.8 × 99.0 mm.
 - **Top** (z 0.6 to 10.5, 9.9 mm tall): a flat deck. Each key has a well 1 mm around its keycap
   (floor at 4.25) and a 15.7 mm zone for the switch housing, down to the 1.2 mm clip plate. The plate
-  has 13.8 mm cut-outs with corner reliefs for a Ø2 mm end mill. The whole underside is 0.85 mm above
+  has 13.8 mm cut-outs with corner reliefs for a Ø2 mm end mill. The whole underside is 0.80 mm above
   the board. Blind pockets from below clear the diodes, XIAO, power switch, reset button and solder
   fillets. Openings in the back wall, cut from below, give access to the USB-C port, the power slider
   and the reset plunger. A wood insert closes the window over the XIAO.

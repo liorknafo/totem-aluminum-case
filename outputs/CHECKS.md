@@ -18,7 +18,7 @@ file). Distances above 3 mm are shown as 3.00.
 | Bottom to board | ≥ 0.50 | 0.52 mm | 0.52 mm |
 | Top to board with 0.3 mm tab nubs | ≥ 0.50 | 0.52 mm | 0.52 mm |
 | Bottom to board with 0.3 mm tab nubs | ≥ 0.50 | 0.52 mm | 0.52 mm |
-| Top to copper pads | ≥ 0.50 | 0.77 mm | 0.77 mm |
+| Top to copper pads | ≥ 0.50 | 0.75 mm | 0.75 mm |
 | Bottom to copper pads | ≥ 0.50 | 0.77 mm | 0.77 mm |
 | Top to solder fillets (allowance envelopes on the pads) | ≥ 0.50 | 0.50 mm | 0.50 mm |
 | Bottom to solder fillets (allowance envelopes on the pads) | ≥ 0.50 | 0.50 mm | 0.50 mm |
@@ -39,9 +39,12 @@ file). Distances above 3 mm are shown as 3.00.
 | Bottom to reset button actuator (plastic), over its travel | ≥ 0.50 | 2.70 mm | 2.70 mm |
 | Top to reset button body (metal) | ≥ 0.50 | 0.52 mm | 0.52 mm |
 | Bottom to reset button body (metal) | ≥ 0.50 | 1.00 mm | 1.00 mm |
-| Top to switch pins under the board | ≥ 0.50 | 2.52 mm | 2.52 mm |
+| Top to switch pins under the board | ≥ 0.50 | 2.47 mm | 2.47 mm |
 | Bottom to switch pins under the board | ≥ 0.50 | 1.00 mm | 1.00 mm |
 | Keycaps (pressed, skirt at z 5.0) to the top | ≥ 0.30 | 0.33 mm | 0.34 mm |
+
+- L switches: largest overlap of a switch body with the top 0.0 mm³; shoulder at z 3.6 on the plate top at 3.6; latches up to z 2.256, 0.144 mm under the plate (underside at 2.4)
+- R switches: largest overlap of a switch body with the top 0.0 mm³; shoulder at z 3.6 on the plate top at 3.6; latches up to z 2.256, 0.144 mm under the plate (underside at 2.4)
 
 Allowances used for solder: 1.0 mm above SMD pads and on the soldered side of through-hole pads
 (the XIAO castellations and the battery-wire pads are soldered on top), 0.6 mm on the diode pads,
@@ -84,9 +87,9 @@ Both stop 0.1 mm from the pad copper, so the board can move no more than that at
 Thinnest material between opposing faces (walls, floors, roofs and diagonal necks), measured on the
 solids. Designed minimum 1.0 mm, except the 1.2 mm switch clip ledge.
 
-- L top: 0.84 mm at (32.8, -100.5, z 3.36); 0.84 mm at (32.8, -100.5, z 3.36); 0.84 mm at (35.9, -100.0, z 3.36); 0.87 mm at (51.6, -69.5, z 6.43)
+- L top: 0.80 mm at (32.8, -100.5, z 3.34); 0.80 mm at (32.8, -100.5, z 3.34); 0.80 mm at (35.9, -100.0, z 3.34); 0.87 mm at (51.6, -69.5, z 6.43)
 - L bottom: 1.11 mm at (147.3, -131.0, z 0.60); 1.11 mm at (148.4, -129.0, z 0.60); 1.17 mm at (147.4, -130.7, z 0.60); 1.39 mm at (144.9, -112.0, z 0.60)
-- R top: 0.86 mm at (264.1, -100.0, z 3.36); 0.86 mm at (267.2, -100.5, z 3.36); 0.86 mm at (267.2, -100.5, z 3.36); 0.88 mm at (248.3, -69.5, z 6.43)
+- R top: 0.82 mm at (264.1, -100.0, z 3.34); 0.82 mm at (267.2, -100.5, z 3.34); 0.82 mm at (267.2, -100.5, z 3.34); 0.88 mm at (248.3, -69.5, z 6.43)
 - R bottom: 1.13 mm at (280.0, -108.5, z 0.60); 1.13 mm at (280.4, -106.2, z 0.60); 1.18 mm at (280.3, -106.5, z 0.60); 1.39 mm at (155.0, -106.5, z 0.60)
 
 ## Machining
@@ -109,10 +112,10 @@ solids. Designed minimum 1.0 mm, except the 1.2 mm switch clip ledge.
 
 | File | Valid | Solids | Shells | Closed | Analyzer | Faces | Size x × y × z (mm) | z | Volume (mm³) |
 |---|---|---|---|---|---|---|---|---|---|
-| `TOTEM_alu_top_L.step` | True | 1 | 1 | True | clean | 555 cylinder, 498 plane | 132.76 × 98.95 × 9.9 | 0.6 … 10.5 | 30106.0 |
+| `TOTEM_alu_top_L.step` | True | 1 | 1 | True | clean | 561 cylinder, 500 plane | 132.76 × 98.95 × 9.9 | 0.6 … 10.5 | 30276.2 |
 | `TOTEM_alu_bottom_L.step` | True | 1 | 1 | True | clean | 123 cylinder, 72 plane | 132.76 × 98.95 × 12.0 | -11.4 … 0.6 | 78505.6 |
 | `TOTEM_wood_window_insert_L.step` | True | 1 | 1 | True | clean | 8 cylinder, 11 plane | 21.3 × 17.0 × 3.0 | 7.5 … 10.5 | 908.0 |
-| `TOTEM_alu_top_R.step` | True | 1 | 1 | True | clean | 559 cylinder, 498 plane | 132.76 × 98.95 × 9.9 | 0.6 … 10.5 | 30103.9 |
+| `TOTEM_alu_top_R.step` | True | 1 | 1 | True | clean | 565 cylinder, 500 plane | 132.76 × 98.95 × 9.9 | 0.6 … 10.5 | 30274.2 |
 | `TOTEM_alu_bottom_R.step` | True | 1 | 1 | True | clean | 127 cylinder, 72 plane | 132.76 × 98.95 × 12.0 | -11.4 … 0.6 | 78502.0 |
 | `TOTEM_wood_window_insert_R.step` | True | 1 | 1 | True | clean | 8 cylinder, 11 plane | 21.3 × 17.0 × 3.0 | 7.5 … 10.5 | 908.0 |
 
@@ -144,8 +147,8 @@ Outline: largest deviation 0.115 mm, area difference 20.838 mm². The right half
 
 ## Build
 
-- L: start, board and part boxes 3.3 s, 2D design 6.5 s, solids 5.0 s, STEP write and read-back 1.0 s
-- R: start, board and part boxes 3.3 s, 2D design 6.7 s, solids 5.1 s, STEP write and read-back 1.0 s
+- L: start, board and part boxes 0.3 s, 2D design 8.6 s, solids 7.2 s, STEP write and read-back 1.0 s
+- R: start, board and part boxes 0.3 s, 2D design 8.4 s, solids 7.4 s, STEP write and read-back 1.0 s
 
 ## Pictures
 

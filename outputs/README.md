@@ -55,12 +55,13 @@ within 0.005 mm, so the walls stay cylindrical.
 - A well around each key, 1 mm clear of a 17.5 × 16.5 mm choc keycap, with its floor at 4.25. A
   pressed keycap's skirt comes down to about 5.0. Wells of neighbouring keys merge; deck islands
   smaller than 150 mm² between them are removed.
-- In each well, a 15.7 mm square zone down to the plate top at 3.65, where the 15 mm top housing of
-  the switch sits.
-- The clip plate (2.45 to 3.65) has 13.8 mm cut-outs. Each corner gets a Ø2.1 relief, pushed
+- In each well, a 15.7 mm square zone down to the plate top at 3.60, where the switch's 15 mm top
+  housing rests on its shoulder.
+- The clip plate (2.40 to 3.60) has 13.8 mm cut-outs. The plate top is the shoulder height of the
+  switch model, and the latches (up to z 2.26) catch 0.14 mm under the plate; the build checks both. Each corner gets a Ø2.1 relief, pushed
   sideways along the row into the 4.2 mm web between columns, so a Ø2 mm end mill leaves room for the
   switch's square corners.
-- The underside is a single cavity at 2.45, which is 0.85 mm above the board (0.80 mm above its
+- The underside is a single cavity at 2.40, which is 0.80 mm above the board (0.75 mm above its
   copper). Above that, blind pockets from below rise only as high as each item needs:
   - diodes: 3.07 over the epoxy (0.3 mm above it), 2.75 over their pads;
   - solder on SMD pads and on the XIAO and battery-wire pads: 3.15;
@@ -153,12 +154,12 @@ milling with a Ø3 end mill.
 
 Top (1/2" plate, 9.9 mm finished, 0.4 mm to face on each side):
 
-1. **Underside up.** Face to the seam (z 0.6). Pocket the cavity to 2.45 and the blind pockets to
+1. **Underside up.** Face to the seam (z 0.6). Pocket the cavity to 2.40 and the blind pockets to
    their heights; the deepest is the wood-flange recess at 9.0, 8.4 mm from the seam face. Cut the
-   wall openings and the upper spacer seats. Cut the 13.8 mm switch cut-outs and their reliefs through the plate, Ø2, 3.05 mm
+   wall openings and the upper spacer seats. Cut the 13.8 mm switch cut-outs and their reliefs through the plate, Ø2, 3.0 mm
    deep from this side. Drill and tap the four M2 holes.
-2. **Top up.** Face to 10.5. Cut the key wells to 4.25 (Ø3, 6.25 deep), then the switch zones to 3.65
-   (Ø2: their corners need 6.85 mm of reach, so use a long-reach or reduced-neck end mill). Cut the
+2. **Top up.** Face to 10.5. Cut the key wells to 4.25 (Ø3, 6.25 deep), then the switch zones to 3.60
+   (Ø2: their corners need 6.9 mm of reach, so use a long-reach or reduced-neck end mill). Cut the
    window and the outer profile.
 
 Bottom (7/8" plate, 12.0 mm finished):
@@ -171,7 +172,7 @@ Bottom (7/8" plate, 12.0 mm finished):
 
 Thinnest walls, floors and roofs (`CHECKS.md` has the full list):
 
-- 0.84 mm (left) and 0.86 mm (right) of plate between the pocket over diode DL16/DR16 and the switch
+- 0.80 mm (left) and 0.82 mm (right) of plate between the pocket over diode DL16/DR16 and the switch
   zone of SWL16/SWR16: that diode sits 0.8 mm from the switch housing. Take a light finishing pass there.
 - Everything else is at least 0.87 mm.
 - The switch clip ledge is 1.2 mm.

@@ -3,7 +3,8 @@
 Each footprint's models come straight from its `(model ...)` entries in the board file: the model
 file (src/TOTEM3D), its offset, rotation and scale, placed the way KiCad places them (rotations
 negated and applied about X, then Y, then Z; offset in mm with +y up). Every model sits on the top
-face of the 1.6 mm board (z = PCB_T in the case frame, where the board spans 0..1.6). Moving a
+face of the board (z = PCB_T in the case frame, where the board spans 0..PCB_T; PCB_T comes from the
+board file and must be the 1.6 mm the models assume). Moving a
 footprint on the board moves its part and nothing else.
 
 src/comp_all.step (KiCad's own STEP export of the parts) is only used to cross-check this placement:
@@ -13,6 +14,7 @@ stale when they disagree.
 import hashlib
 import json
 import math
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,7 +24,27 @@ import numpy as np
 from pcb import SPLIT_X
 
 ROOT = Path(__file__).resolve().parent.parent
-PCB_T = 1.6
+MODEL_PCB_T = 1.6     # the footprints' 3D models (switches over the board, hot-swap sockets under it)
+                      # are placed from the board's top face and assume a 1.6 mm board
+
+
+def _board_thickness():
+    t = (ROOT / 'src' / 'totem_0_3.kicad_pcb').read_text()[:4000]
+    m = re.search(r'\(general\s*\(thickness ([\d.]+)\)', t)
+    return float(m.group(1)) if m else MODEL_PCB_T
+
+
+PCB_T = _board_thickness()
+
+
+def assert_thickness():
+    """Stop when the board is not 1.6 mm thick: the part models would then sit wrong (a socket under
+    a thicker board would end up inside it), and so would the case and its checks."""
+    if abs(PCB_T - MODEL_PCB_T) > 1e-6:
+        raise SystemExit(f'The board file says the board is {PCB_T} mm thick. The case is built around the '
+                         f'part models, which assume a {MODEL_PCB_T} mm board (switches on its top face, hot-swap '
+                         f'sockets under its bottom face, both placed from the top face). Use a {MODEL_PCB_T} mm '
+                         f'board, or adjust the models and MODEL_PCB_T first.')
 ABOVE = 0.8           # geometry above the middle of the board belongs to the top side
 TESS_TOL = 0.02
 CACHE = Path(__file__).resolve().parent / 'cache' / 'part_boxes.json'

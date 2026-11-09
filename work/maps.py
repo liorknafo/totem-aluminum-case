@@ -86,7 +86,7 @@ def clearance(side):
     poly = sg.Polygon(ring(f.outerWire()), [ring(w) for w in f.innerWires()]).buffer(0)
     inside = contains_xy(poly, pts[:, 0], pts[:, 1])
     fig, axes = plt.subplots(1, 2, figsize=(22, 8.5))
-    for ax, m, z0, sgn, title in ((axes[0], top, 1.6 + B.COPPER, 1, 'top part above the board (from the copper)'),
+    for ax, m, z0, sgn, title in ((axes[0], top, B.P.PCB_T + B.COPPER, 1, 'top part above the board (from the copper)'),
                                   (axes[1], bot, -B.COPPER, -1, 'bottom part below the board (from the copper)')):
         o = np.c_[pts, np.full(len(pts), z0)]
         loc, idx, _ = m.ray.intersects_location(o, np.tile((0, 0, sgn), (len(o), 1)), multiple_hits=False)

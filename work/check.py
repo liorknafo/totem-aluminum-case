@@ -105,7 +105,8 @@ def BRepExtrema_DistShapeShape_value(a, b):
 # ----------------------------------------------------------------------------- the board
 def board_solid(board, side, nubs=False):
     """The half board as the case sees it: its outline from the board file (tabs removed; with
-    nubs=True plus the TAB_NUB allowance where they were), from -COPPER to 1.6 + COPPER."""
+    nubs=True plus the TAB_NUB allowance where they were), from -COPPER to PCB_T + COPPER (PCB_T from
+    the board file)."""
     loops = board.outline(side)
     f = g.from_loops(loops)
     if nubs:
@@ -464,6 +465,7 @@ def face_types(shape):
 
 # ----------------------------------------------------------------------------- main
 def check(board, side):
+    P.assert_thickness()
     rep = dict(side=side)
     top = load(OUT / f'TOTEM_alu_top_{side}.step')
     bot = load(OUT / f'TOTEM_alu_bottom_{side}.step')
@@ -557,6 +559,21 @@ def check(board, side):
         prism = cq.Solid.extrudeLinear(r.translate(cq.Vector(0, 0, 5.0)), cq.Vector(0, 0, 8.0))
         kc.append((T.dist(prism)[0], k.ref))
     rep['keycaps'] = dict(min_gap=round(min(kc)[0], 3), key=min(kc)[1], pressed_skirt_z=5.0)
+    # switches: the plastic bodies must sit in the plate without overlapping the aluminum, their
+    # shoulder on the plate top and their latches under the plate
+    sw_worst = (0.0, None)
+    for k in d['keys']:
+        for s in P.placed(board, k):
+            if s.BoundingBox().zmax < P.PCB_T + 0.4:
+                continue
+            ov = top.intersect(s)
+            v = ov.Volume() if ov.Solids() else 0.0
+            if v > sw_worst[0]:
+                sw_worst = (v, k.ref)
+    sh, la = d['switch_seat']
+    rep['switches'] = dict(max_overlap_mm3=round(sw_worst[0], 6), where=sw_worst[1], shoulder_z=sh, plate_top=round(B.PLATE_TOP, 3),
+                           latch_top_z=la, plate_bottom=round(B.PLATE_BOT, 3), latch_play=round(B.PLATE_BOT - la, 3))
+    log(side, 'switches', rep['switches'])
     log(side, 'keycaps', rep['keycaps'])
 
     # thickness

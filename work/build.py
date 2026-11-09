@@ -11,7 +11,8 @@ part models (src/comp_all.step). Each part is a block of the case outline with a
 2D regions cut from it: pockets from below, wells from above, holes through. Regions are built from
 exact lines and arcs (geom2d.py), so the STEP files hold only planes and cylinders.
 
-Frame: x = KiCad x, y = -KiCad y, z = 0 at the board's bottom face (board 1.6 mm thick).
+Frame: x = KiCad x, y = -KiCad y, z = 0 at the board's bottom face (board 1.6 mm thick, from the board
+file; the build stops for any other thickness, see parts.assert_thickness).
 """
 import json
 import math
@@ -49,9 +50,10 @@ T_MIN = 1.0             # thinnest floor, roof or web designed in (aluminum)
 
 # --- heights (z)
 Z_TOP = 10.5            # top surface (top part from 1/2" plate: 9.9 tall)
-PLATE_TOP = 3.65        # switch plate top: the choc top housing rests here (from the switch model)
+PLATE_TOP = 3.60        # switch plate top: the shoulder of the choc top housing rests here (the build
+                        # checks it against the switch model, and that the latches catch under the plate)
 PLATE_T = 1.2           # choc clip ledge
-PLATE_BOT = PLATE_TOP - PLATE_T   # 2.45: the top's whole underside, 0.85 above the board
+PLATE_BOT = PLATE_TOP - PLATE_T   # 2.40: the top's whole underside, 0.80 above the board
 WELL_FLOOR = 4.25       # keycap wells around each switch zone (keycap skirt pressed ~5.0)
 Z_SEAM = 0.6            # top/bottom joint, under the power switch (its lowest metal is at 1.13)
 FLOOR = -2.6            # bottom cavity floor (sockets reach -2.04)
@@ -258,8 +260,29 @@ def front_boxes(board, side):
 
 
 # ===================================================================================== design
+SHOULDER_HALF = 7.3     # the top housing (15 mm) is wider than this from the switch centre; the latches are not
+
+
+def switch_seat(fp):
+    """(shoulder z, latch top z) of a switch footprint's model: where its 15 mm top housing starts, and
+    the highest point of the latches below it."""
+    import numpy as np
+    pts = []
+    for s in P.template(fp):
+        if s.BoundingBox().zmax < P.PCB_T + 0.4:
+            continue                                   # the hot-swap socket
+        v, _ = s.tessellate(0.01, 0.2)
+        pts.append(np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()]))
+    Q = np.concatenate(pts)
+    r = np.maximum(abs(Q[:, 0]), abs(Q[:, 1]))
+    shoulder = Q[r > SHOULDER_HALF, 2].min()
+    latch = Q[(r > SWITCH_HOLE / 2 + 0.05) & (r <= SHOULDER_HALF) & (Q[:, 2] < shoulder) & (Q[:, 2] > P.PCB_T + 0.1), 2].max()
+    return float(shoulder), float(latch)
+
+
 def design(board, side):
     """All 2D regions and heights of one half."""
+    P.assert_thickness()
     d = {}
     loops = board.outline(side)
     d['board'] = g.from_loops(loops)
@@ -268,6 +291,12 @@ def design(board, side):
     d['above'], d['below'] = above, below
     fps = [f for f in board.footprints if f.side == side]
     keys = [f for f in fps if kind(f) == 'Kailh_socket']
+    # the plate must carry every switch on its shoulder, with the latches catching under it
+    for key in {P.model_key(k): k for k in keys}.values():
+        shoulder, latch = switch_seat(key)
+        assert abs(shoulder - PLATE_TOP) < 0.005, f'{key.ref}: switch shoulder at z {shoulder:.3f}, PLATE_TOP is {PLATE_TOP}'
+        assert latch <= PLATE_BOT - 0.05, f'{key.ref}: latch top at z {latch:.3f} does not clear the plate underside {PLATE_BOT}'
+        d['switch_seat'] = (round(shoulder, 3), round(latch, 3))
     holes = [f.at for f in fps if kind(f) == 'MountingHole']
     xiao = next(f for f in fps if kind(f) == 'xiao')
     d['keys'], d['holes'], d['xiao'] = keys, holes, xiao

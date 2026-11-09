@@ -68,6 +68,13 @@ def main():
             row('Wood insert to XIAO', 'no contact', lambda r, cat=cat: r['parts'][cat]['insert']['d'])
     row('Keycaps (pressed, skirt at z 5.0) to the top', '≥ 0.30', lambda r: r['keycaps']['min_gap'])
     w('')
+    for s in 'LR':
+        sw = c[s].get('switches')
+        if sw:
+            w(f"- {s} switches: largest overlap of a switch body with the top {sw['max_overlap_mm3']} mm³; shoulder at z "
+              f"{sw['shoulder_z']} on the plate top at {sw['plate_top']}; latches up to z {sw['latch_top_z']}, "
+              f"{sw['latch_play']} mm under the plate (underside at {sw['plate_bottom']})")
+    w('')
     w('Allowances used for solder: 1.0 mm above SMD pads and on the soldered side of through-hole pads')
     w('(the XIAO castellations and the battery-wire pads are soldered on top), 0.6 mm on the diode pads,')
     w('0.3 mm pushed through to the component side, none on the hot-swap switch-pin rings and on the')
