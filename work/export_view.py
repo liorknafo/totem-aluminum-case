@@ -1,143 +1,101 @@
-"""Meshes of the final parts, the PCB and its parts, packed for the 3D viewer (view_data.json).
+"""outputs/TOTEM_3d_view.html: the interactive three.js view of the whole build (viewer_template.html).
 
-Case parts: vertices quantized to uint16 over the scene box (byte planes), indices delta/zigzag
-(byte planes), zlib, base64. Switches and diodes: one model each plus a placement per footprint.
-PCB: outline and larger holes, extruded in the viewer."""
-import sys, json, base64, zlib, re
-sys.path.insert(0, '.')
-from geo import *
-import build
-from common import placed
+Meshes come from scene.py. Vertices are quantized to uint16 over the scene box (byte planes),
+indices delta/zigzag coded (byte planes), zlib, base64. Switches and diodes are one mesh each plus
+a placement per footprint; the board is its outline and holes, extruded in the viewer.
+"""
+import base64
+import json
+import zlib
+from pathlib import Path
 
-Z_SCALE = build.PCB_TOP / build.KICAD_TOP
+import numpy as np
 
+import build as B
+import geom2d as g
+import scene
 
-def tess(shape, tol=0.05):
-    v, f = shape.tessellate(tol, 0.5)
-    return np.array([p.toTuple() for p in v], float), np.array(f, np.int64).reshape(-1, 3)
-
-
-def merge(meshes):
-    V, F, n = [], [], 0
-    for v, f in meshes:
-        V.append(v); F.append(f + n); n += len(v)
-    return np.concatenate(V), np.concatenate(F)
-
-
-def footprints():
-    t = open(W / '../src/totem_0_3.kicad_pcb').read()
-    out = {}
-    for b in t.split('\n  (footprint ')[1:]:
-        r = re.search(r'reference "([^"]+)"', b)
-        x, y, *a = re.search(r'\(at ([-\d.]+) ([-\d.]+)(?: ([-\d.]+))?\)', b).groups()
-        out[r.group(1)] = (float(x), -float(y), float(a[0] or 0))
-    return out
-
-
-def model(parts, ref, fp):
-    """The part's solids moved to its footprint's own frame."""
-    x, y, a = fp[ref]
-    meshes = []
-    for s in [s for n, shp in parts if n == ref for s in shp.Solids()]:
-        if s.BoundingBox().zmin > 0.75:
-            s = build.lift(s)
-        s = s.translate(cq.Vector(-x, -y, 0)).rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), -a)
-        meshes.append(tess(s, 0.08))
-    return merge(meshes)
-
-
-def placements(parts, fp, prefix, ref_mesh):
-    """[x, y, angle] per footprint of this kind, checked against the part's own box."""
-    v0 = ref_mesh[0]
-    out = {'L': [], 'R': []}
-    for name in sorted({n for n, _ in parts if n.startswith(prefix)}):
-        shp = cq.Compound.makeCompound([s for n, sh in parts if n == name for s in sh.Solids()])
-        x, y, a = fp[name]
-        side = 'L' if x < 150 else 'R'
-        c, s_ = np.cos(np.radians(a)), np.sin(np.radians(a))
-        p = v0[:, :2] @ np.array([[c, s_], [-s_, c]]) + (x, y)
-        bb = shp.BoundingBox()
-        err = max(abs(p[:, 0].min() - bb.xmin), abs(p[:, 0].max() - bb.xmax), abs(p[:, 1].min() - bb.ymin), abs(p[:, 1].max() - bb.ymax))
-        assert err < 0.05, (name, err)
-        dx = build.R_SHIFT if side == 'R' else 0
-        out[side].append([round(x + dx, 4), round(y, 4), a])
-    return out
-
-
-def board_outline(side):
-    """Board bottom face: outline ring, round holes as [x, y, r], other holes as rings (holes under
-    2 mm² dropped)."""
-    pcb = build.pcb_solid(side)
-    f = max((f for f in pcb.Faces() if f.geomType() == 'PLANE' and abs(f.Center().z) < 1e-3), key=lambda f: f.Area())
-    g = build.face_region(f).simplify(0.01)
-    circles, rings = [], []
-    for r in g.interiors:
-        p = np.array(r.coords)[:-1]
-        if sg_area(p) < 2:
-            continue
-        c = p.mean(0); d = np.linalg.norm(p - c, axis=1)
-        if d.std() < 0.02:
-            circles.append(np.round([*c, d.mean()], 3).tolist())
-        else:
-            rings.append(np.round(p, 2).ravel().tolist())
-    return {'outline': np.round(np.array(g.exterior.coords)[:-1], 2).ravel().tolist(), 'circles': circles, 'rings': rings}
-
-
-def sg_area(ring):
-    import shapely.geometry as sg
-    return sg.Polygon(ring).area
+W = Path(__file__).resolve().parent
 
 
 def pack(v, f, lo, scale):
     q = np.round((v - lo) / scale).astype('<u2')
     qs = np.concatenate([np.frombuffer(q[:, i].copy().tobytes(), np.uint8).reshape(-1, 2).T.ravel() for i in range(3)])
-    d = np.diff(np.concatenate([[0], f.ravel()]))
+    d = np.diff(np.concatenate([[0], f.ravel()])).astype(np.int64)
     z = ((d << 1) ^ (d >> 63)).astype('<u4')
     zs = np.frombuffer(z.tobytes(), np.uint8).reshape(-1, 4).T.ravel()
     blob = zlib.compress(qs.tobytes() + zs.tobytes(), 9)
     return {'nv': len(v), 'nf': len(f), 'b64': base64.b64encode(blob).decode()}
 
 
-parts = build.kicad_parts()
-fp = footprints()
-sw = model(parts, 'SWL11', fp)
-di = model(parts, 'DL9', fp)
-other = {}
-for side in 'LR':
-    meshes = []
-    for name, shp in parts:
-        bb = shp.BoundingBox()
-        if (side == 'L') != ((bb.xmin + bb.xmax) / 2 < 150) or not name.startswith(('PWR', 'RST', 'RSW')):
-            continue
-        for s in shp.Solids():
-            if s.BoundingBox().zmin > 0.75:
-                s = build.lift(s)
-            meshes.append(tess(build.place(s, side), 0.08))
-    other[side] = merge(meshes)
+def ring(wire, shift):
+    pts = []
+    for e in wire.Edges():
+        n = max(2, int(e.Length() / 0.4) + 1)
+        pts += [e.positionAt(t).toTuple()[:2] for t in np.linspace(0, 1, n)][:-1]
+    a = np.array(pts) + np.array((shift, 0))
+    return np.round(a, 3)
 
-groups = {}
-for side in 'LR':
-    groups[f'top_{side}'] = tess(load(f'../outputs/TOTEM_alu_top_{side}.step'))
-    groups[f'bottom_{side}'] = tess(load(f'../outputs/TOTEM_alu_bottom_{side}.step'))
-    groups[f'insert_{side}'] = tess(load(f'../outputs/TOTEM_wood_window_insert_{side}.step'))
-    groups[f'parts_{side}'] = other[side]
-    for key, kind, mesh in (('xiao', 'electronics', 'component3'), ('battery', 'battery', None),
-                            ('screws', 'hardware', 'illustrative_screw'), ('caps', 'keycap', 'illustrative_cap')):
-        ts = [t for t in placed({kind}, side) if mesh is None or t.metadata['mesh'] == mesh]
-        groups[f'{key}_{side}'] = merge([(np.asarray(t.vertices, float), np.asarray(t.faces, np.int64)) for t in ts])
-groups['switch'] = sw
-groups['diode'] = di
 
-lo = np.min([v.min(0) for v, _ in groups.values()], 0) - 1
-hi = np.max([v.max(0) for v, _ in groups.values()], 0) + 1
-scale = (hi - lo) / 65535
-data = {'lo': lo.tolist(), 'scale': scale.tolist(), 'meshes': {},
-        'switches': placements(parts, fp, 'SW', sw), 'diodes': placements(parts, fp, 'D', di),
-        'pcb': {s: board_outline(s) for s in 'LR'}, 'pcb_top': build.PCB_TOP}
-for k, (v, f) in groups.items():
-    data['meshes'][k] = pack(v, f, lo, scale)
-    print(k, len(v), len(f), len(data['meshes'][k]['b64']))
-json.dump(data, open(W / 'view_data.json', 'w'), separators=(',', ':'))
-print('switches', {k: len(v) for k, v in data['switches'].items()}, 'diodes', {k: len(v) for k, v in data['diodes'].items()})
-print('pcb', {s: (len(r['circles']), len(r['rings'])) for s, r in data['pcb'].items()}, len(json.dumps(data['pcb'])))
-print('json bytes', (W / 'view_data.json').stat().st_size)
+def pcb_outline(side):
+    shift = scene.VIEW_SHIFT if side == 'R' else 0.0
+    f = g.from_loops(scene.board().outline(side))
+    out = ring(f.outerWire(), shift)
+    # the case viewer wants a counter-clockwise outline and clockwise holes
+    def ccw(a, want=True):
+        s = np.sum(a[:, 0] * np.roll(a[:, 1], -1) - np.roll(a[:, 0], -1) * a[:, 1])
+        return a if (s > 0) == want else a[::-1]
+    circles = [[round(fp.at[0] + shift, 3), round(fp.at[1], 3), 1.6] for fp in scene.board().footprints
+               if fp.side == side and B.kind(fp) == 'MountingHole']
+    rings = [ccw(ring(w, shift), False).ravel().tolist() for w in f.innerWires()]
+    return {'outline': ccw(out).ravel().tolist(), 'circles': circles, 'rings': rings}
+
+
+def instanced(kind):
+    """The most common model entries of a footprint kind (drawn as one instanced mesh) and the
+    footprints that carry them; footprints of that kind with other entries are drawn as parts."""
+    from collections import Counter
+    import parts as P
+    fps = [f for f in scene.board().footprints if B.kind(f) == kind]
+    key = Counter(P.model_key(f) for f in fps).most_common(1)[0][0]
+    same = [f for f in fps if P.model_key(f) == key]
+    return same[0], same, [f for f in fps if P.model_key(f) != key]
+
+
+def placements(fps):
+    out = {}
+    for side in 'LR':
+        shift = scene.VIEW_SHIFT if side == 'R' else 0.0
+        out[side] = [[round(fp.at[0] + shift, 4), round(fp.at[1], 4), fp.angle] for fp in fps if fp.side == side]
+    return out
+
+
+def main():
+    sw_ref, sw_same, sw_other = instanced('Kailh_socket')
+    di_ref, di_same, di_other = instanced('Diode_SOD123')
+    groups = {}
+    for side in 'LR':
+        L = scene.layers(side)
+        for k in ('top', 'bottom', 'insert', 'xiao', 'battery', 'screws', 'caps'):
+            groups[f'{k}_{side}'] = scene.shifted(side, L[k])
+        fps = [f for f in scene.board().footprints if f.side == side and B.kind(f) in ('MSK12C02', 'SKHLLCA010')]
+        fps += [f for f in sw_other + di_other if f.side == side]
+        groups[f'parts_{side}'] = scene.shifted(side, scene.merge([scene.place(scene.local_model(f, 'all'), f.at, f.angle) for f in fps]))
+    groups['switch'] = scene.merge([scene.local_model(sw_ref, 'switch'), scene.local_model(sw_ref, 'socket')])
+    groups['diode'] = scene.local_model(di_ref, 'all')
+    lo = np.min([v.min(0) for v, _ in groups.values() if len(v)], 0) - 1
+    hi = np.max([v.max(0) for v, _ in groups.values() if len(v)], 0) + 1
+    scale = (hi - lo) / 65535
+    data = {'lo': lo.tolist(), 'scale': scale.tolist(), 'meshes': {},
+            'switches': placements(sw_same), 'diodes': placements(di_same),
+            'pcb': {s: pcb_outline(s) for s in 'LR'}, 'pcb_top': 1.6}
+    for k, (v, f) in groups.items():
+        data['meshes'][k] = pack(v, f, lo, scale)
+    t = (W / 'viewer_template.html').read_text()
+    html = t.replace('__DATA__', json.dumps(data, separators=(',', ':')))
+    (W.parent / 'outputs' / 'TOTEM_3d_view.html').write_text(html)
+    print('3D view written', len(html) // 1024, 'kB')
+
+
+if __name__ == '__main__':
+    main()

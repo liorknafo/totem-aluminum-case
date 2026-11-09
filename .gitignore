@@ -8,25 +8,19 @@ src/board_abs.kicad_pcb
 src/comp/
 src/*.log
 
-# work/: only the pipeline scripts, the viewer template, the site meshes and the input copies
+# work/: only the pipeline scripts, the viewer template and the reference copies of the old case files
 work/*
 !work/orig/
-!work/meshes.json
-!work/viewer_template.html
-!work/check_all.sh
 !work/build.py
-!work/geo.py
-!work/common.py
-!work/verify.py
-!work/argan_all.py
-!work/thin.py
-!work/heightmaps.py
-!work/render3d.py
-!work/render_v.py
-!work/reset_back.py
-!work/through.py
-!work/under_cmp.py
-!work/write_checks.py
+!work/pcb.py
+!work/parts.py
+!work/geom2d.py
+!work/check.py
+!work/report.py
+!work/check_all.sh
+!work/scene.py
+!work/render.py
+!work/maps.py
 !work/export_view.py
-!work/pack_png.py
-!work/stills_template.html
+!work/viewer_template.html
+!work/test_variants.py

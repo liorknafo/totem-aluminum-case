@@ -1,654 +1,576 @@
-"""Aluminum TOTEM case: keep every aluminum surface clear of the PCB and its parts.
+"""TOTEM BLE case in aluminum: a parametric 2.5D model generated from the KiCad board.
 
-Inputs are copies (work/orig, src/); originals in ~/Downloads are never touched.
-Units mm. Case coordinates = the original STEP coordinates (KiCad x, -y for the left half).
+    ~/.venvs/totem-cad/bin/python -E -s build.py          # both halves
+    ~/.venvs/totem-cad/bin/python -E -s build.py L        # one half
+
+Writes outputs/TOTEM_alu_top_{L,R}.step, TOTEM_alu_bottom_{L,R}.step and
+TOTEM_wood_window_insert_{L,R}.step, and work/build_{L,R}.json (design data for the checks).
+
+Everything is read from src/totem_0_3.kicad_pcb (outline, footprint positions, pads) and the KiCad 3D
+part models (src/comp_all.step). Each part is a block of the case outline with a few extruded
+2D regions cut from it: pockets from below, wells from above, holes through. Regions are built from
+exact lines and arcs (geom2d.py), so the STEP files hold only planes and cylinders.
+
+Frame: x = KiCad x, y = -KiCad y, z = 0 at the board's bottom face (board 1.6 mm thick, from the board
+file; the build stops for any other thickness, see parts.assert_thickness).
 """
-import sys, json, time
-sys.path.insert(0, '.')
-from geo import *
-from OCP.STEPCAFControl import STEPCAFControl_Reader
-from OCP.TDocStd import TDocStd_Document
-from OCP.XCAFDoc import XCAFDoc_DocumentTool
-from OCP.TDF import TDF_LabelSequence
-from OCP.TCollection import TCollection_ExtendedString
-from OCP.TDataStd import TDataStd_Name
-from OCP.Bnd import Bnd_OBB
-from OCP.BRepBndLib import BRepBndLib
-from OCP.gp import gp_Pnt
+import json
+import math
+import sys
+import time
+from pathlib import Path
 
-C = 0.5            # clearance from aluminum to PCB, parts, pads and solder (mm)
-SOLDER = 1.0       # allowance for solder fillets above a pad (mm)
-COPPER = 0.05      # copper + mask thickness on each face of the board
-RESET_PLUNGER = 1.1  # plastic plunger length of the side-push reset switch (metal body ends here)
-SOLDER_DIODE = 0.6 # SOD-123 terminals are ~0.15 thick; their fillets stay well under 0.6
-DIODE_TOP = 0.3    # clearance above the diode's epoxy body (an insulator); its metal keeps C
-PCB_TOP = 1.6      # the case was designed for a 1.6 mm board: bottom face z=0, top face z=1.6
-KICAD_TOP = 1.51   # KiCad's board top face; top-side parts are lifted by PCB_TOP-KICAD_TOP
-PAD_R = 2.5        # the mounting-hole pads (Ø5.6, no net) may touch the top within this radius
-SKIN = 0.6         # thinnest floor left under a bottom pocket; thinner floors are cut through
-SEAM_Z0 = -2.0     # original lowest point of the top
-SEAM_RAISE = 0.5   # top/bottom seam moved up: top 12.5 -> 12.0 mm so 1/2" plate can be faced both sides
-SEAM_GAP = 0.2     # the original leaves 0.2 between top skirt (-2.0) and bottom rim (-2.2); kept
-DOGBONE_R = 0.52   # corner reliefs in the 13.8 mm switch cut-outs, for a 1 mm end mill (2 mm ones meet across the 3.2 mm webs)
-LEDGE = (2.4, 3.7) # z span of the 1.2 mm switch clip ledge (2.45..3.65); the relief stays over the 16 mm recess below
-R_SHIFT = 7.96     # KiCad right half -> right case (matches the right top's screw bores)
-SCREWS = {'L': [(57, -52.7), (34.3, -121.014348), (139.5, -112), (131.2, -52.7)]}
-SCREWS['R'] = [(168.46, -112.0), (176.76, -52.7), (250.96, -52.7), (273.66, -121.0)]
-XIAO = {'L': ((41.2, -59.6), 90.0), 'R': ((258.8 + R_SHIFT, -59.6), -90.0)}
+import cadquery as cq
+
+import geom2d as g
+import parts as P
+from pcb import Board, rot
+
+W = Path(__file__).resolve().parent
 OUT = W.parent / 'outputs'
-OUT.mkdir(exist_ok=True)
+
+# ===================================================================================== parameters
+# --- the rule
+C = 0.5                 # aluminum to the board, its copper and every metal part on it
+TAB_NUB = 0.3           # what may stay of a snapped mouse-bite tab, proud of the board edge
+FIT_MARGIN = 0.02       # the outline's Bezier curves are replaced by arcs within 0.005 mm
+COPPER = 0.05           # copper + mask on each face, on top of the 1.6 mm board
+SOLDER_SMD = 1.0        # solder fillet height above an SMD pad
+SOLDER_DIODE = 0.6      # SOD-123 terminals are ~0.15 thick; their fillets stay under 0.6
+SOLDER_THT_FAR = 1.0    # solder on the soldered side of a through-hole pad
+SOLDER_THT_NEAR = 0.3   # solder pushed through to the component side of a through-hole pad
+FILLET_SPREAD = 0.3     # a fillet spreads this far beyond its pad
+DIODE_TOP_GAP = 0.3     # above the diodes' epoxy bodies (an insulator; their metal keeps C)
+
+# --- machining
+R_MILL = 1.0            # smallest end mill: Ø2 flat (pockets, slots, corner reliefs)
+R_WELL = 1.5            # key wells: Ø3 end mill (6.25 deep)
+R_OUTLINE = 3.0         # inside corners of the outer outline (profile with a Ø6 end mill or smaller)
+T_MIN = 1.0             # thinnest floor, roof or web designed in (aluminum)
+
+# --- heights (z)
+Z_TOP = 10.5            # top surface (top part from 1/2" plate: 9.9 tall)
+PLATE_TOP = 3.60        # switch plate top: the shoulder of the choc top housing rests here (the build
+                        # checks it against the switch model, and that the latches catch under the plate)
+PLATE_T = 1.2           # choc clip ledge
+PLATE_BOT = PLATE_TOP - PLATE_T   # 2.40: the top's whole underside, 0.80 above the board
+WELL_FLOOR = 4.25       # keycap wells around each switch zone (keycap skirt pressed ~5.0)
+Z_SEAM = 0.6            # top/bottom joint, under the power switch (its lowest metal is at 1.13)
+FLOOR = -2.6            # bottom cavity floor (sockets reach -2.04)
+Z_BOT = -11.4           # underside of the bottom (bottom from 7/8" plate: 12.0 tall)
+
+# --- outline
+WALL = 1.8              # side wall outside the 0.5 mm gap; outline = board grown by C + WALL
+BULGE_WALL = 1.8        # wall in front of a part that overhangs the board edge (reset button)
+
+# --- keys (Kailh choc)
+KEYCAP = (17.5, 16.5)   # choc keycap
+KEYCAP_GAP = 1.0        # keycap to well wall
+KEYCAP_MIN_GAP = 0.3    # where a well has to give way to a pocket or a screw
+SWITCH_ZONE = 15.7      # square around the 15 mm top housing, down to the plate
+SWITCH_ZONE_R = 1.05
+SWITCH_HOLE = 13.8      # plate cut-out
+TBONE_R = 1.05          # corner reliefs for the Ø2 end mill, pushed sideways into the 4.2 mm webs
+TBONE_OFF = (0.25, -1.0)  # relief centre from each corner: outward along the row, inward along the column
+DECK_MIN = 3.0          # deck strips between wells narrower than this are removed
+RIM = 1.5               # deck rim kept along the outline
+POCKET_MERGE = 3.0      # pockets of the same height closer than this are merged
+ISLAND_MAX = 150.0      # deck islands (mm²) surrounded by wells are removed
+
+# --- XIAO, window and wood insert (footprint frame a, b; +b toward the USB-C end)
+XIAO_BOXES = [(-8.8, 8.8, -10.6, 10.6, 1.66, 5.93),   # module, 17.5 x 21 (no KiCad model), 4.27 tall
+              (-4.5, 4.5, 4.5, 11.9, 2.6, 5.93)]      # USB-C receptacle, overhanging the board edge
+WINDOW = (-7.0, 7.0, -10.3, 8.0)   # through the roof, from the far end to just short of the USB-C end
+WINDOW_R = 2.0
+WOOD_T = 3.0            # wood insert: 1.5 plug in the roof + 1.5 flange under it
+ROOF_T = 1.5
+FLANGE = 1.5            # flange overhang around the window
+FLANGE_GAP = 0.2        # flange recess around the flange
+PLUG_GAP = 0.1          # plug to window, each side
+ROOF_Z = Z_TOP - ROOF_T
+
+# --- openings through the side wall, cut from below (footprint frame a, b; z = top of the opening)
+NOTCHES = {
+    'MSK12C02': dict(a=(-9.0, 0.0), b=(-7.5, -1.5), z=3.4),     # power slider, 6 mm wide for its travel
+    'SKHLLCA010': dict(a=(-2.0, 2.0), b=(3.5, 9.0), z=None),    # reset plunger: 4.0 mm slot for a pin
+    'xiao': dict(a=(-6.5, 6.5), b=(8.0, 16.0), z=8.2),          # USB-C plug, 13 mm wide
+}
+FRONT = {'MSK12C02': ('a', -0.1, -1), 'SKHLLCA010': ('b', 4.05, +1)}   # plastic actuators ahead of the body
+TRAVEL = {'MSK12C02': ('b', 1.5)}   # the slider knob moves up to 1.5 mm either way along the switch
+# (z=None: the top of the opening is C above the actuator. Every actuator keeps C over its travel.)
+
+# --- screws: M2 socket head from below, through the no-net mounting pads, into M2 threads in the top
+CLEAR_D = 2.4
+CBORE_D = 4.4           # counterbore for the M2 head (Ø3.8)
+CBORE_SEAT = -5.2       # head seat; the head (2.0) stays inside even in a leg recess (roof -7.3)
+TAP_D = 1.6             # M2 tap drill
+TAP_DEPTH = 5.5         # thread from the upper spacer seat (2.75 .. 8.25; M2x12 screws end at 6.8)
+# spacers at the no-net mounting pads (insulating, e.g. nylon, OD <= SPACER_D): they stop SPACER_GAP
+# from the pad copper above and below the board and sit in shallow seats in the roof and the floor
+SPACER_D = 5.0
+SEAT_D = 5.4
+SPACER_GAP = 0.1
+UPPER_SPACER = 1.0      # between the board and the top
+LOWER_SPACER = 3.0      # between the bottom and the board
+UPPER_SEAT = P.PCB_T + COPPER + SPACER_GAP + UPPER_SPACER      # 2.75
+LOWER_SEAT = -COPPER - SPACER_GAP - LOWER_SPACER               # -3.15
+SCREW_KEEP = 2.5        # wells keep this far from a screw axis
+
+# --- bottom: battery, tenting legs, feet (left-half positions; the right half is mirrored)
+MIRROR_X = 150.0
+BATTERY = (16.0, 23.0)  # pocket for a 15 x 22 x 7.5 LiPo
+BATTERY_R = 1.5
+BATTERY_AT = (-19.0, -1.0)   # from the midpoint of the battery pads
+BATTERY_TOP = -2.2      # the battery's top may sit just under the sockets (-2.04)
+BATTERY_FLOOR = BATTERY_TOP - 7.5
+LEGS = [((112.4, -58.6), 0.0), ((115.13, -117.1), -30.0)]   # adhesive tenting feet
+LEG = (57.4, 19.2)
+LEG_R = 3.5
+LEG_ROOF = -7.3         # 4.1 deep
+LEG_WALL = 1.6          # side wall next to a leg recess (the recess is moved inward if needed)
+FEET = [(35.62, -54.64), (42.12, -118.65), (77.58, -118.65), (136.85, -76.34), (136.85, -101.73)]
+FOOT_D = 9.0            # 8.5 mm rubber feet
+FOOT_DEPTH = 0.4
+
+# ===================================================================================== helpers
 T0 = time.monotonic()
 
 
 def log(*a):
-    print(f'[{time.monotonic() - T0:6.1f}s]', *a, flush=True)
+    print(f'[{time.monotonic() - T0:5.1f}s]', *a, flush=True)
 
 
-def fast_cut(shape, tools):
-    """One multi-tool boolean cut, run in parallel by the kernel."""
+def kind(fp):
+    for key in ('Kailh_socket', 'Diode_SOD123', 'xiao', 'MSK12C02', 'SKHLLCA010', 'BatteryPad', 'MJ-4PP-9',
+                'MountingHole', 'mousebites'):
+        if key in fp.lib:
+            return key
+    return 'other'
+
+
+def mirror(p, side):
+    return p if side == 'L' else (2 * MIRROR_X - p[0], p[1])
+
+
+def local_rect(fp, a0, a1, b0, b1, grow=0.0):
+    """Footprint-frame box grown by `grow` (a rounded rectangle = box + disc of radius grow)."""
+    c = fp.to_case(0, 0)
+    ca = ((a0 + a1) / 2, (b0 + b1) / 2)
+    off = rot(ca, fp.angle)
+    return g.rrect((c[0] + off[0], c[1] + off[1]), a1 - a0 + 2 * grow, b1 - b0 + 2 * grow, fp.angle, grow)
+
+
+def pad_region(p, grow):
+    w, h = p.size
+    if p.shape == 'circle':
+        return g.circle(p.at, w / 2 + grow)
+    if p.shape == 'oval':
+        return g.stadium(p.at, w + 2 * grow, h + 2 * grow, p.angle)
+    return g.rrect(p.at, w + 2 * grow, h + 2 * grow, p.angle, grow)
+
+
+def solder(fp, pad):
+    """(solder above the top face, solder below the bottom face) for a copper pad."""
+    k = kind(fp)
+    if k == 'MJ-4PP-9':
+        return 0.0, 0.0                                  # TRRS jack: not fitted in the BLE build
+    if k == 'Kailh_socket':
+        if pad.kind == 'smd':
+            return 0.0, SOLDER_SMD                       # socket contacts, soldered under the board
+        return 0.0, 0.0                                  # switch-pin rings: hot-swap, never soldered
+    if pad.kind == 'smd':
+        s = SOLDER_DIODE if k == 'Diode_SOD123' else SOLDER_SMD
+        return (s, 0.0) if pad.top else (0.0, s)
+    if k in ('xiao', 'BatteryPad'):
+        return SOLDER_THT_FAR, SOLDER_THT_FAR            # castellations / battery wires: soldered on top
+    return SOLDER_THT_NEAR, SOLDER_THT_FAR               # through-hole parts soldered from below
+
+
+# ===================================================================================== keep-outs
+R_POCKET = R_MILL + 0.05   # pockets are drawn as shapes rounded with at least this radius
+
+
+def keepouts(board, side):
+    """Everything on one half of the board, as dicts:
+       region  the keep-out in plan (outline grown by its side clearance),
+       mill    the same grown to at least R_POCKET and rounded, so a Ø2 end mill can cut it,
+       z       for things above the board: the lowest the top may come; below it: the highest the
+               bottom may come,
+       ref, what."""
+    above, below = [], []
+
+    def add(lst, fp, what, make, grow, z):
+        lst.append(dict(ref=fp.ref, what=what, region=make(grow), mill=make(max(grow, R_POCKET)), z=z))
+
+    for fp in board.footprints:
+        if fp.side != side:
+            continue
+        k = kind(fp)
+        if k in ('MountingHole', 'mousebites'):
+            continue
+        # copper pads
+        for pad in fp.pads:
+            if pad.kind == 'np_thru_hole' or not pad.copper:
+                continue
+            st, sb = solder(fp, pad)
+            make = lambda gr, pad=pad: pad_region(pad, gr)
+            if pad.top:
+                add(above, fp, f'pad {pad.number}', make, C + (FILLET_SPREAD if st else 0), P.PCB_T + COPPER + st + C)
+            if pad.bottom:
+                add(below, fp, f'pad {pad.number}', make, C + (FILLET_SPREAD if sb else 0), -COPPER - sb - C)
+        # part bodies
+        if k == 'MJ-4PP-9':
+            continue                                     # TRRS jack: not fitted in the BLE build
+        if k == 'xiao':
+            for a0, a1, b0, b1, z0, z1 in XIAO_BOXES:
+                add(above, fp, 'body', lambda gr, r=(a0, a1, b0, b1): local_rect(fp, *r, gr), C, z1 + C)
+            continue
+        fr = FRONT.get(k)
+        for bx in P.boxes_for(board, fp):
+            if k == 'Kailh_socket' and not bx['below']:
+                continue                                 # plastic switch bodies clip into the plate
+            if bx['below']:
+                add(below, fp, 'body', lambda gr, bx=bx: local_rect(fp, bx['a0'], bx['a1'], bx['b0'], bx['b1'], gr),
+                    C, bx['z0'] - C)
+                continue
+            if fr:
+                # the plastic actuator ahead of the body gets an opening instead (NOTCHES)
+                axis, val, sgn = fr
+                bx = dict(bx)
+                if sgn < 0:
+                    bx[axis + '0'] = max(bx[axis + '0'], val)
+                else:
+                    bx[axis + '1'] = min(bx[axis + '1'], val)
+            gap = DIODE_TOP_GAP if k == 'Diode_SOD123' else C
+            add(above, fp, 'body', lambda gr, bx=bx: local_rect(fp, bx['a0'], bx['a1'], bx['b0'], bx['b1'], gr),
+                C, bx['z1'] + gap)
+    return above, below
+
+
+def front_boxes(board, side):
+    """The plastic actuators (power slider knob, reset plunger) as boxes in their footprint frame."""
+    out = []
+    for fp in board.footprints:
+        if fp.side != side or kind(fp) not in FRONT:
+            continue
+        bx = P.front_box(fp, *FRONT[kind(fp)])
+        if bx:
+            out.append((fp, bx))
+    return out
+
+
+# ===================================================================================== design
+SHOULDER_HALF = 7.3     # the top housing (15 mm) is wider than this from the switch centre; the latches are not
+
+
+def switch_seat(fp):
+    """(shoulder z, latch top z) of a switch footprint's model: where its 15 mm top housing starts, and
+    the highest point of the latches below it."""
+    import numpy as np
+    pts = []
+    for s in P.template(fp):
+        if s.BoundingBox().zmax < P.PCB_T + 0.4:
+            continue                                   # the hot-swap socket
+        v, _ = s.tessellate(0.01, 0.2)
+        pts.append(np.array([p.toTuple() for p in v] + [p.toTuple() for p in s.Vertices()]))
+    Q = np.concatenate(pts)
+    r = np.maximum(abs(Q[:, 0]), abs(Q[:, 1]))
+    shoulder = Q[r > SHOULDER_HALF, 2].min()
+    latch = Q[(r > SWITCH_HOLE / 2 + 0.05) & (r <= SHOULDER_HALF) & (Q[:, 2] < shoulder) & (Q[:, 2] > P.PCB_T + 0.1), 2].max()
+    return float(shoulder), float(latch)
+
+
+def design(board, side):
+    """All 2D regions and heights of one half."""
+    P.assert_thickness()
+    d = {}
+    loops = board.outline(side)
+    d['board'] = g.from_loops(loops)
+    board_outer = g.from_loops(loops[:1])
+    above, below = keepouts(board, side)
+    d['above'], d['below'] = above, below
+    fps = [f for f in board.footprints if f.side == side]
+    keys = [f for f in fps if kind(f) == 'Kailh_socket']
+    # the plate must carry every switch on its shoulder, with the latches catching under it
+    for key in {P.model_key(k): k for k in keys}.values():
+        shoulder, latch = switch_seat(key)
+        assert abs(shoulder - PLATE_TOP) < 0.005, f'{key.ref}: switch shoulder at z {shoulder:.3f}, PLATE_TOP is {PLATE_TOP}'
+        assert latch <= PLATE_BOT - 0.05, f'{key.ref}: latch top at z {latch:.3f} does not clear the plate underside {PLATE_BOT}'
+        d['switch_seat'] = (round(shoulder, 3), round(latch, 3))
+    holes = [f.at for f in fps if kind(f) == 'MountingHole']
+    xiao = next(f for f in fps if kind(f) == 'xiao')
+    d['keys'], d['holes'], d['xiao'] = keys, holes, xiao
+
+    # cavity: the board grown by C, every corner cuttable with the Ø2 mill. Where the panel tabs were
+    # snapped off, the board may keep nubs up to TAB_NUB proud of its edge: the cavity allows for them.
+    nubs = []
+    for p0, p1 in board.tab_openings(side):
+        mid = ((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2)
+        out = (1.0 if side == 'L' else -1.0, 0.0)          # the tabs point toward the other half
+        L = math.dist(p0, p1)
+        nubs.append(g.rrect((mid[0] + out[0] * (TAB_NUB / 2 - 0.05), mid[1]), TAB_NUB + 0.1, L, 0))   # overlaps the edge by 0.1
+    d['nubs'] = nubs
+    cav = g.mill_fix(g.offset(g.union(board_outer, *nubs), C + FIT_MARGIN), R_MILL)
+    d['cavity'] = cav
+
+    # outer outline: board grown by C + WALL, grown around parts that overhang the board edge
+    # (the reset button) and smoothed; notches handle the actuators and the USB-C plug
+    grow = [g.offset(board_outer, C + WALL)]
+    for it in above:
+        fp = next(f for f in fps if f.ref == it['ref'])
+        if kind(fp) == 'SKHLLCA010' and it['what'] == 'body':
+            grow.append(g.offset(it['region'], BULGE_WALL))
+    d['outline'] = outline = g.closing(g.union(*grow), R_OUTLINE)
+
+    # ---- top: pockets from below, one per part at the height of its tallest item, merged per height
+    # Each item (pad with its solder, body) is pocketed only as high as it needs; the pocket at a
+    # height covers every item at least that tall (so each level is one machinable region), items of
+    # the same height closer than POCKET_MERGE are merged, corners get reliefs for the Ø2 mill.
+    tall = [dict(it) for it in above if it['z'] > PLATE_BOT + 1e-6]
+    # notches through the wall (open at the seam) and the wood flange recess under the roof take
+    # part in the same merge, so no thin fins stand between neighbouring pockets
+    acts = front_boxes(board, side)
+    for fp in fps:
+        n = NOTCHES.get(kind(fp))
+        if n:
+            z = n['z']
+            if z is None:
+                z = max(bx['z1'] for f2, bx in acts if f2.ref == fp.ref) + C
+            tall.append(dict(ref=fp.ref + ' opening', what='opening', region=local_rect(fp, *n['a'], *n['b']), z=z))
+    # seats for the upper spacers in the roof
+    for h in holes:
+        tall.append(dict(ref='spacer seat', what='seat', region=g.circle(h, SEAT_D / 2), z=UPPER_SEAT))
+    wa0, wa1, wb0, wb1 = WINDOW
+    R = WINDOW_R
+    fl = local_rect(xiao, wa0 - FLANGE + R, wa1 + FLANGE - R, wb0 - FLANGE + R, wb1 + FLANGE - R, R + FLANGE_GAP)
+    tall.append(dict(ref=xiao.ref + ' wood flange', what='flange', region=fl, z=ROOF_Z))
+    pockets = []
+    for z in sorted({round(it['z'], 3) for it in tall}):
+        items = [it for it in tall if it['z'] >= z - 1e-6]
+        reg = g.closing(g.union(*[it['region'] for it in items]), POCKET_MERGE / 2)
+        reg = g.mill_fix(reg, R_MILL, keep_out=outline)
+        pockets.append(dict(region=reg, z=z, what=sorted({it['ref'] for it in items if abs(it['z'] - z) < 1e-6})))
+    d['pockets'] = pockets
+    # every plastic actuator, over its travel and grown by C, lies in openings at least C above it
+    for fp, bx in acts:
+        ax, t = TRAVEL.get(kind(fp), ('b', 0.0))
+        a0, a1, b0, b1 = bx['a0'] - C, bx['a1'] + C, bx['b0'] - C, bx['b1'] + C
+        if ax == 'a':
+            a0, a1 = a0 - t, a1 + t
+        else:
+            b0, b1 = b0 - t, b1 + t
+        need = g.inter(local_rect(fp, a0, a1, b0, b1), outline)
+        room = g.union(*[p['region'] for p in pockets if p['z'] >= bx['z1'] + C - 1e-6])
+        short = g.area(g.diff(need, room))
+        assert short < 1e-3 and bx['z0'] - C >= Z_SEAM, f'{fp.ref}: actuator closer than {C} mm ({short:.3f} mm²)'
+    d['window'] = g.union(local_rect(xiao, wa0 + R, wa1 - R, wb0 + R, wb1 - R, R))
+
+    # ---- top: wells from above. Keycap wells, then the deck is kept around tall pockets (T_MIN
+    # over them), around the screws and along the rim; deck bits narrower than DECK_MIN go.
+    zones = g.union(*[g.rrect(k.at, SWITCH_ZONE, SWITCH_ZONE, k.angle, SWITCH_ZONE_R) for k in keys])
+    wells = g.union(*[g.rrect(k.at, KEYCAP[0] + 2 * KEYCAP_GAP, KEYCAP[1] + 2 * KEYCAP_GAP, k.angle, R_WELL) for k in keys])
+    wells = g.closing(wells, DECK_MIN / 2)
+    high = [p['region'] for p in pockets if p['z'] > WELL_FLOOR - T_MIN]
+    stay = [g.offset(g.union(*high), T_MIN + 0.05)] if high else []
+    stay += [g.circle(h, SCREW_KEEP) for h in holes]
+    stay.append(g.diff(g.offset(outline, 10), g.offset(outline, -RIM)))
+    wells = g.diff(wells, *stay)
+    # deck islands surrounded by wells (posts between key groups) go too
+    deck = sorted(g.faces(g.diff(outline, wells)), key=lambda f: -f.Area())
+    stay_all = g.union(*stay)
+    islands = [f for f in deck[1:] if f.Area() < ISLAND_MAX and g.area(g.inter(f, stay_all)) < 1e-6]
+    wells = g.mill_fix(g.union(wells, zones, *islands), R_WELL)
+    d['zones'], d['wells'] = zones, wells
+    for k in keys:
+        cap = g.rrect(k.at, KEYCAP[0] + 2 * KEYCAP_MIN_GAP, KEYCAP[1] + 2 * KEYCAP_MIN_GAP, k.angle)
+        short = g.area(g.diff(cap, wells))
+        assert short < 1e-3, f'{k.ref}: keycap closer than {KEYCAP_MIN_GAP} mm to the deck ({short:.3f} mm²)'
+
+    # switch cut-outs with corner reliefs
+    holes_sw = []
+    for k in keys:
+        sq = g.rrect(k.at, SWITCH_HOLE, SWITCH_HOLE, k.angle)
+        discs = []
+        h = SWITCH_HOLE / 2
+        for sa in (-1, 1):
+            for sb in (-1, 1):
+                off = rot((sa * (h + TBONE_OFF[0]), sb * (h + TBONE_OFF[1])), k.angle)
+                discs.append(g.circle((k.at[0] + off[0], k.at[1] + off[1]), TBONE_R))
+        holes_sw.append(g.union(sq, *discs))
+    d['switch_holes'] = g.union(*holes_sw)
+    # the corner reliefs reach past the switch zone: open them up through the well floor too, so no
+    # skin is left over them
+    d['zones'] = g.union(d['zones'], d['switch_holes'])
+
+    # ---- bottom
+    bat_pads = [f.at for f in fps if kind(f) == 'BatteryPad']
+    mid = (sum(p[0] for p in bat_pads) / len(bat_pads), sum(p[1] for p in bat_pads) / len(bat_pads))
+    off = BATTERY_AT if side == 'L' else (-BATTERY_AT[0], BATTERY_AT[1])
+    d['battery'] = g.rrect((mid[0] + off[0], mid[1] + off[1]), BATTERY[0], BATTERY[1], 0, BATTERY_R)
+    d['legs'], d['leg_places'] = place_legs(side, outline)
+    d['feet'] = g.union(*[g.circle(mirror(c, side), FOOT_D / 2) for c in FEET])
+    # anything below the board reaching under the floor, or overhanging the board edge
+    low = [f"{it['ref']} {it['what']}" for it in below if it['z'] < FLOOR + 1e-6]
+    assert not low, ('parts below the floor', low)
+    # bottom-side items overhanging the board edge: cut into the rim only as deep as each needs
+    out_of_cav = g.diff(g.union(*[it['region'] for it in below]), cav)
+    over = [it for it in below if g.area(out_of_cav) > 1e-3 and g.distance(it['region'], out_of_cav) < 1e-6]
+    d['bottom_cavity'] = cav
+    d['bottom_over'] = []
+    for z in sorted({round(it['z'], 3) for it in over}, reverse=True):
+        items = [it for it in over if it['z'] <= z + 1e-6]
+        reg = g.mill_fix(g.union(cav, *[it['region'] for it in items]), R_MILL, keep_out=outline)
+        d['bottom_over'].append(dict(region=g.diff(reg, cav), z=z))
+    return d
+
+
+def place_legs(side, outline):
+    """Tenting-leg recesses at their nominal places, moved inward across their width where needed
+    so the side wall next to them stays LEG_WALL thick."""
+    outside = g.diff(g.offset(outline, 20), outline)
+    regs, places = [], []
+    for c, a in LEGS:
+        c, a = mirror(c, side), (a if side == 'L' else -a)
+        n = rot((0, 1), a)
+        for _ in range(6):
+            r = g.rrect(c, LEG[0], LEG[1], a, LEG_R)
+            dd = g.distance(r, outside)
+            if dd >= LEG_WALL - 1e-3:
+                break
+            step = LEG_WALL - dd + 0.02
+            # move along the leg's short axis, away from the outline
+            cands = [(c[0] + s * step * n[0], c[1] + s * step * n[1]) for s in (1, -1)]
+            c = max(cands, key=lambda q: g.distance(g.rrect(q, LEG[0], LEG[1], a, LEG_R), outside))
+        assert dd >= LEG_WALL - 1e-3, ('leg recess too close to the side', c)
+        regs.append(r)
+        places.append((round(c[0], 2), round(c[1], 2), a, round(dd, 2)))
+    return g.union(*regs), places
+
+
+# ===================================================================================== solids
+def prisms(region, z0, z1):
+    return g.extrude(region, z0, z1)
+
+
+def cut(blank, tools):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     from OCP.TopTools import TopTools_ListOfShape
     args, tl = TopTools_ListOfShape(), TopTools_ListOfShape()
-    args.Append(shape.wrapped)
+    args.Append(blank.wrapped)
     for t in tools:
         tl.Append(t.wrapped)
     op = BRepAlgoAPI_Cut()
     op.SetArguments(args); op.SetTools(tl)
-    op.SetRunParallel(True); op.SetUseOBB(True)
+    op.SetRunParallel(True)
     op.Build()
     assert op.IsDone(), 'cut failed'
-    return cq.Shape.cast(op.Shape())
+    res = cq.Shape.cast(op.Shape())
+    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+    u = ShapeUpgrade_UnifySameDomain(res.wrapped, True, True, True)
+    u.Build()
+    res = cq.Shape.cast(u.Shape())
+    sols = sorted(res.Solids(), key=lambda s: -s.Volume())
+    return sols
 
 
-def box(x0, x1, y0, y1, z0, z1):
-    return cq.Solid.makeBox(x1 - x0, y1 - y0, z1 - z0, cq.Vector(x0, y0, z0))
+def hole(c, d, z0, z1):
+    return cq.Solid.makeCylinder(d / 2, z1 - z0, cq.Vector(c[0], c[1], z0))
 
 
-def half_space(side):
-    """Region belonging to one PCB half in KiCad coordinates (panel tabs removed)."""
-    if side == 'L':
-        return box(0, 143.35, -300, 0, -50, 50).fuse(box(0, 152, -300, -121.5, -50, 50))
-    return box(156.55, 400, -300, 0, -50, 50).fuse(box(148, 400, -300, -121.5, -50, 50))
-
-
-def place(shape, side):
-    return shape if side == 'L' else shape.translate(cq.Vector(R_SHIFT, 0, 0))
-
-
-def lift(shape):
-    """KiCad top-side geometry sits on a 1.51 board; the case expects 1.6."""
-    return shape.translate(cq.Vector(0, 0, PCB_TOP - KICAD_TOP))
-
-
-def obb_box(shape, grow, grow_top=None, z_range=None):
-    """Smallest upright box around a solid (parts are only ever rotated about Z), grown by
-    `grow` on every side; `grow_top` overrides the growth above the solid, `z_range` sets z."""
-    import shapely.geometry as sg
-    v, _ = shape.tessellate(0.01, 0.2)
-    pts = np.array([p.toTuple() for p in v] + [p.toTuple() for p in shape.Vertices()])
-    rect = sg.MultiPoint(pts[:, :2]).convex_hull.minimum_rotated_rectangle
-    c = np.array(rect.exterior.coords)[:4]
-    e0, e1 = c[1] - c[0], c[2] - c[1]
-    ang = np.degrees(np.arctan2(e0[1], e0[0]))
-    L0, L1 = np.linalg.norm(e0) + 2 * grow, np.linalg.norm(e1) + 2 * grow
-    z0 = pts[:, 2].min() - grow
-    z1 = pts[:, 2].max() + (grow if grow_top is None else grow_top)
-    if z_range:
-        z0, z1 = z_range
-    ctr = c.mean(axis=0)
-    b = cq.Solid.makeBox(L0, L1, z1 - z0, cq.Vector(-L0 / 2, -L1 / 2, z0))
-    return b.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), ang).translate(cq.Vector(ctr[0], ctr[1], 0))
-
-
-# ---------------------------------------------------------------- PCB keep-out
-def pcb_solid(side):
-    board = load('../src/pcb_board.step').Solids()[0]
-    return place(board.intersect(half_space(side)), side)
-
-
-def wire_pts(w, step=0.05):
-    pts = []
-    for e in w.Edges():
-        n = max(2, int(e.Length() / step) + 1)
-        p = [e.positionAt(t).toTuple()[:2] for t in np.linspace(0, 1, n)]
-        pts.extend(p[:-1])
-    return pts
-
-
-def poly_face(poly, z):
-    def wire(coords):
-        return cq.Wire.makePolygon([cq.Vector(x, y, z) for x, y in coords[:-1]], close=True)
-    return cq.Face.makeFromWires(wire(list(poly.exterior.coords)), [wire(list(i.coords)) for i in poly.interiors])
-
-
-def pcb_keepout(pcb):
-    """PCB outline grown by C sideways (holes shrunk by C), from z=-C to PCB_TOP+C."""
-    import shapely.geometry as sg
-    faces = pcb.intersect(box(-50, 450, -300, 50, 0.74, 0.76)).Faces()
-    face = max((f for f in faces if abs(f.normalAt().z) > 0.99 and f.Center().z > 0.755), key=lambda f: f.Area())
-    side_c = C + 0.03  # + polyline sampling error on the curved (mouse-bite) edges
-    outer = sg.Polygon(wire_pts(face.outerWire())).buffer(side_c, quad_segs=16)
-    holes = [sg.Polygon(wire_pts(w)).buffer(-side_c, quad_segs=16) for w in face.innerWires()]
-    holes = [h for h in holes if not h.is_empty and h.area > 0.2]
-    region = outer
-    for h in holes:
-        region = region.difference(h)
-    polys = list(region.geoms) if region.geom_type == 'MultiPolygon' else [region]
-    cu = COPPER  # pads and mask stand proud of the laminate on both faces
-    solids = [cq.Solid.extrudeLinear(poly_face(p, -C - cu), cq.Vector(0, 0, PCB_TOP + 2 * (C + cu))) for p in polys]
-    k = solids[0] if len(solids) == 1 else cq.Compound.makeCompound(solids)
-    return k, len(face.innerWires()), len(holes)
-
-
-# --------------------------------------------------------- parts and pads
-def kicad_parts():
-    doc = TDocStd_Document(TCollection_ExtendedString('d'))
-    r = STEPCAFControl_Reader(); r.SetNameMode(True)
-    r.ReadFile(str(W / '../src/comp_all.step')); r.Transfer(doc)
-    st = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-    free = TDF_LabelSequence(); st.GetFreeShapes(free)
-    parts = []
-    for i in range(1, free.Length() + 1):
-        comps = TDF_LabelSequence(); st.GetComponents_s(free.Value(i), comps)
-        for j in range(1, comps.Length() + 1):
-            lab = comps.Value(j); n = TDataStd_Name()
-            name = n.Get().ToExtString() if lab.FindAttribute(TDataStd_Name.GetID_s(), n) else '?'
-            if name.startswith('=>') or name.endswith('_PCB'):
-                continue
-            parts.append((name, cq.Shape.cast(st.GetShape_s(lab))))
-    return parts
-
-
-def part_keepouts(side, parts):
-    """Grown oriented boxes around every solid of every part on this half.
-    Switch bodies above the board are plastic and clip into the top plate, so only the
-    switch pins below the board are kept out."""
-    hs = half_space(side)
-    tools, names = [], []
-    for name, shp in parts:
-        bb = shp.BoundingBox()
-        cx = (bb.xmin + bb.xmax) / 2
-        if (side == 'L') != (cx < 150):
-            continue
-        if name.startswith('J'):
-            continue  # TRRS jack: not fitted in the BLE build (the BLE bottom fills its space)
-        is_switch = bb.zmax > 8
-        reset = name in ('RSW1', 'RST')
-        for s in shp.Solids():
-            if reset and s.Volume() > 1:
-                # side-push reset switch: only its metal body needs room; the plastic plunger
-                # (last 1.1 mm toward the back wall) keeps using the original round access hole
-                sb = s.BoundingBox()
-                s = s.intersect(box(sb.xmin - 1, sb.xmax + 1, sb.ymin - 1, sb.ymax - RESET_PLUNGER, sb.zmin - 1, sb.zmax + 1))
-            sb = s.BoundingBox()
-            if is_switch:
-                if sb.zmin >= 0:
-                    continue
-                s = s.intersect(box(-50, 450, -300, 50, -10, 0))
-                if not s.Solids():
-                    continue
-            if sb.zmin > 0.75:
-                s = lift(s)
-            top_gap = DIODE_TOP if name.startswith('D') else None
-            tools.append(place(obb_box(s, C, top_gap), side)); names.append(name)
-    return tools, names
-
-
-def switch_centres(parts):
-    """KiCad-coordinate centres of the switch bodies."""
-    out = []
-    for name, shp in parts:
-        if shp.BoundingBox().zmax > 8:
-            body = max(shp.Solids(), key=lambda s: s.Volume())
-            b = body.BoundingBox()
-            out.append(((b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2))
-    return out
-
-
-def pad_keepouts(side, screws, parts):
-    """Exposed copper. Solder allowance where solder can be: SMD pads, and THT pads on the
-    bottom. The switch-pin rings on the top side sit under the switch body and are never
-    soldered from the top (hot-swap sockets; direct soldering is done from below)."""
-    pads = load('../src/pads.step').Solids()
-    sw = switch_centres(parts)
-    diodes, jacks = [], []
-    for name, shp in parts:
-        if name.startswith('J'):
-            b = shp.BoundingBox()
-            jacks.append(((b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2))
-        if name.startswith('D'):
-            b = shp.BoundingBox()
-            diodes.append(((b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2))
+def make_top(d):
     tools = []
-    for p in pads:
-        b = p.BoundingBox()
-        cx, cy = (b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2
-        if (side == 'L') != (cx < 150):
-            continue
-        X = cx + (0 if side == 'L' else R_SHIFT)
-        if any(np.hypot(X - sx, cy - sy) < 0.5 for sx, sy in screws):
-            continue  # floating mounting pad: allowed contact
-        top_side = b.zmax > 0.75
-        bot_side = b.zmin < 0.75
-        unfitted = any(np.hypot(cx - x, cy - y) < 9 for x, y in jacks)  # bare pads, no solder
-        z0 = -SOLDER - C if bot_side and not unfitted else -C
-        ring = any(f.geomType() == 'CYLINDER' for f in p.Faces())  # copper around a drilled hole
-        under_switch = top_side and ring and any(np.hypot(cx - x, cy - y) < 7.6 for x, y in sw)
-        diode_pad = any(np.hypot(cx - x, cy - y) < 2.6 for x, y in diodes)
-        solder = SOLDER_DIODE if diode_pad else SOLDER
-        z1 = PCB_TOP + solder + C if top_side and not under_switch and not unfitted else PCB_TOP + C
-        # the pad grown sideways by C (+0.3 fillet spread), spanning [z0, z1]
-        prism = obb_box(p, C + 0.3, z_range=(z0, z1))
-        tools.append(place(prism, side))
-    return tools
+    tools += prisms(d['cavity'], Z_SEAM - 1, PLATE_BOT)
+    for p in d['pockets']:
+        tools += prisms(p['region'], Z_SEAM - 1, p['z'])
+    tools += prisms(d['switch_holes'], PLATE_BOT - 0.5, PLATE_TOP + 0.5)
+    tools += prisms(d['zones'], PLATE_TOP, Z_TOP + 1)
+    tools += prisms(d['wells'], WELL_FLOOR, Z_TOP + 1)
+    tools += prisms(d['window'], ROOF_Z - 0.5, Z_TOP + 1)
+    for h in d['holes']:
+        tools.append(hole(h, TAP_D, UPPER_SEAT - 0.5, UPPER_SEAT + TAP_DEPTH))
+    blank = prisms(d['outline'], Z_SEAM, Z_TOP)[0]
+    sols = cut(blank, tools)
+    return sols, len(tools)
 
 
-def board_prism(k_pcb):
-    """The board outline grown by C (holes ignored), as a tall prism."""
-    sols = k_pcb.Solids()
-    faces = [f for so in sols for f in so.Faces() if f.normalAt().z < -0.99]
-    outer = [cq.Face.makeFromWires(f.outerWire()) for f in faces]
-    return cq.Compound.makeCompound([cq.Solid.extrudeLinear(f.translate(cq.Vector(0, 0, -20 - f.Center().z)),
-                                                             cq.Vector(0, 0, 40)) for f in outer])
+def make_bottom(d):
+    tools = []
+    tools += prisms(d['bottom_cavity'], FLOOR, Z_SEAM + 1)
+    for p in d['bottom_over']:
+        tools += prisms(p['region'], p['z'], Z_SEAM + 1)
+    tools += prisms(d['battery'], BATTERY_FLOOR, FLOOR + 0.5)
+    tools += prisms(d['legs'], Z_BOT - 1, LEG_ROOF)
+    tools += prisms(d['feet'], Z_BOT - 1, Z_BOT + FOOT_DEPTH)
+    for h in d['holes']:
+        tools.append(hole(h, CLEAR_D, Z_BOT - 1, FLOOR + 0.5))
+        tools.append(hole(h, SEAT_D, LOWER_SEAT, FLOOR + 0.5))
+        tools.append(hole(h, CBORE_D, Z_BOT - 1, CBORE_SEAT))
+    blank = prisms(d['outline'], Z_BOT, Z_SEAM)[0]
+    sols = cut(blank, tools)
+    return sols, len(tools)
 
 
-def merge_under_switches(tools, side, parts, under_board):
-    """Below the board, every switch has a socket, two contacts, pins and pads with their own
-    zones; overlapping boxes of different depths leave knife-edge wedges. Replace each switch's
-    group with one upright box around all of them (deepest floor)."""
-    centres = [place(cq.Vertex.makeVertex(x, y, 0), side).Center() for x, y in switch_centres(parts)]
-    groups = {i: [] for i in range(len(centres))}
-    rest = []
-    for t in tools:
-        b = t.BoundingBox()
-        c = ((b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2)
-        near = [i for i, v in enumerate(centres) if np.hypot(c[0] - v.x, c[1] - v.y) < 9.5]
-        if b.zmin < -C - 0.05 and near:
-            groups[min(near, key=lambda i: np.hypot(c[0] - centres[i].x, c[1] - centres[i].y))].append(t)
-        else:
-            rest.append(t)
-    merged = []
-    for i, g in groups.items():
-        if not g:
-            continue
-        comp = cq.Compound.makeCompound(g)
-        zb = comp.BoundingBox()
-        # 0.01 larger than its contents so no face coincides with a zone inside it
-        rect = obb_box(comp, 0.01, z_range=(zb.zmin - 0.01, max(zb.zmax, 0.0) + 0.01)).intersect(under_board)
-        outside = [x.cut(under_board) for x in g]
-        outside = [x for x in outside if x.Solids() and x.Volume() > 1e-4]
-        merged.append(rect.fuse(*outside).clean() if outside else rect)
-    return rest + merged, len(merged)
-
-
-def face_poly(face):
-    """Filled shapely polygon of a planar face (holes ignored), from its own triangles."""
-    import shapely.geometry as sg
-    from shapely.ops import unary_union
-    v, tri = face.tessellate(0.01, 0.2)
-    pts = np.array([p.toTuple()[:2] for p in v])
-    u = unary_union([sg.Polygon(pts[list(t)]) for t in tri if sg.Polygon(pts[list(t)]).area > 1e-9]).buffer(1e-4)
-    return unary_union([sg.Polygon(g.exterior) for g in (u.geoms if u.geom_type == 'MultiPolygon' else [u])])
-
-
-def face_region(face):
-    """Shapely polygon of a planar face with its holes, from the face's own triangles."""
-    import shapely.geometry as sg
-    from shapely.ops import unary_union
-    v, tri = face.tessellate(0.01, 0.2)
-    pts = np.array([p.toTuple()[:2] for p in v])
-    return unary_union([sg.Polygon(pts[list(t)]) for t in tri if sg.Polygon(pts[list(t)]).area > 1e-9]).buffer(1e-4)
-
-
-def fill_leg_recess_slits(bot, side):
-    """The site lowered the GEIST leg-recess roofs from -2.6 to -7.3 (shallower recesses) but
-    missed bits: the old rounded wall/roof edge (0.5-0.8 mm slits) and a few corners of the old
-    roof. Map every place inside the GEIST recess footprint that is open from below with its
-    ceiling still at the old roof height, trace smooth outlines and fill them from -7.3 up, so
-    the whole recess has the lowered roof. Through-openings stay open."""
-    import trimesh, contourpy, shapely.geometry as sg
-    from shapely.ops import unary_union
-    roof_faces = [f for f in bot.Faces() if f.normalAt().z < -0.99 and abs(f.Center().z + 7.3) < 0.02 and f.Area() > 200]
-    if not roof_faces:
-        return bot, 0, 0.0, 0.0
-    roof = unary_union([face_region(f) for f in roof_faces])            # the lowered roof (holes open)
-    geist = load(f'orig/TOTEMcase_v08_6mm_BLE_Tenting_Bottom_{side}.step')
-    if not geist.Solids() or len(geist.Shells()) > 1:
-        geist = cq.Solid.makeSolid(max(geist.Shells(), key=lambda sh: sh.Area()))
-    # the GEIST recess footprint: every roof face at -2.6, openings filled, plus its rounded edge
-    old = unary_union([face_poly(f) for f in geist.Faces()
-                       if f.normalAt().z < -0.99 and abs(f.Center().z + 2.6) < 0.02 and f.Area() > 0.5])
-    near = old.buffer(0.9).union(unary_union([face_poly(f) for f in roof_faces]).buffer(1.0)).difference(roof.buffer(-0.01))
-    v, f = bot.tessellate(0.005, 0.05)
-    m = trimesh.Trimesh(np.array([p.toTuple() for p in v]), np.array(f))
-    step = 0.05
-    polys = []
-    for part in (near.geoms if near.geom_type == 'MultiPolygon' else [near]):
-        x0, y0, x1, y1 = part.bounds
-        xs = np.arange(x0 - 0.2, x1 + 0.2, step); ys = np.arange(y0 - 0.2, y1 + 0.2, step)
-        X, Y = np.meshgrid(xs, ys); P = np.c_[X.ravel(), Y.ravel()]
-        loc, idx, _ = m.ray.intersects_location(np.c_[P, np.full(len(P), -20.0)], np.tile([0, 0, 1.0], (len(P), 1)),
-                                                multiple_hits=False)
-        H = np.full(len(P), np.nan); H[idx] = np.asarray(loc).reshape(-1, 3)[:, 2]
-        G = ((H > -6.9) & (H < -2.4)).astype(float).reshape(X.shape)  # anything above the lowered roof
-        gen = contourpy.contour_generator(xs, ys, G, fill_type=contourpy.FillType.OuterOffset)
-        for pts, offs in zip(*gen.filled(0.5, 1.5)):
-            rings = [pts[offs[i]:offs[i + 1]] for i in range(len(offs) - 1)]
-            if len(rings[0]) >= 4:
-                polys.append(sg.Polygon(rings[0], [r for r in rings[1:] if len(r) >= 4]).buffer(0))
-    slit = unary_union(polys).intersection(near) if polys else sg.Polygon()
-    slit = slit.buffer(-0.05).buffer(0.15).simplify(0.02)   # drop specks, overlap the walls by ~0.1
-    pieces = [g for g in (slit.geoms if slit.geom_type == 'MultiPolygon' else [slit]) if g.area > 0.3]
-    fill = [cq.Solid.extrudeLinear(poly_face(g, -7.3), cq.Vector(0, 0, 7.3 - 2.5)) for g in pieces]
-    vol = sum(x.Volume() for x in fill)
-    out = bot.fuse(*fill).clean() if fill else bot
-    b0, b1 = bot.BoundingBox(), out.BoundingBox()
-    assert max(abs(b0.xmin - b1.xmin), abs(b0.xmax - b1.xmax), abs(b0.ymin - b1.ymin), abs(b0.ymax - b1.ymax)) < 1e-6, \
-        'slit fill reached outside the case'
-    return out, len(pieces), round(sum(g.area for g in pieces), 1), round(vol, 1)
-
-
-def close_recess_openings(bot, side, top):
-    """The socket pockets of the site's bottom break through the leg-recess roofs, some at the
-    recess edge, and bits of the old -2.6 roof are left around a few of them. On an underside
-    height map, take each leg recess as seen from below (its -7.3 roof plus every opening and
-    raised bit joined to it, so its outline is the original's) and fill everything in it that is
-    open or higher than the roof, from -7.3 up. Screw holes and the cavities around them stay.
-    The keep-out cuts then carve the pockets again, so each one gets a floor and each recess
-    roof is one flat face of the same outline. The fill stays SEAM_GAP clear of the top part and
-    inside the case's outer face."""
-    import trimesh, contourpy, shapely, shapely.geometry as sg
-    from shapely.ops import unary_union
-    roof_faces = [f for f in bot.Faces() if f.normalAt().z < -0.99 and abs(f.Center().z + 7.3) < 0.02 and f.Area() > 200]
-    roof = unary_union([face_poly(f) for f in roof_faces])
-    screws = unary_union([sg.Point(x, y).buffer(3.0) for x, y in SCREWS[side]])
-    v, f = bot.tessellate(0.01, 0.1)
-    m = trimesh.Trimesh(np.array([p.toTuple() for p in v]), np.array(f))
-    step = 0.1
-    x0, y0, x1, y1 = roof.buffer(12).bounds
-    xs = np.arange(x0, x1, step); ys = np.arange(y0, y1, step)
-    X, Y = np.meshgrid(xs, ys); P = np.c_[X.ravel(), Y.ravel()]
-    loc, idx, _ = m.ray.intersects_location(np.c_[P, np.full(len(P), -30.0)], np.tile([0, 0, 1.0], (len(P), 1)),
-                                            multiple_hits=False)
-    U = np.full(len(P), np.nan); U[idx] = np.asarray(loc).reshape(-1, 3)[:, 2]
-    solid = ~np.isnan(U)
-
-    def polys(mask, holes=False):
-        gen = contourpy.contour_generator(xs, ys, mask.reshape(X.shape).astype(float), fill_type=contourpy.FillType.OuterOffset)
-        out = []
-        for pts, offs in zip(*gen.filled(0.5, 1.5)):
-            rings = [pts[offs[k]:offs[k + 1]] for k in range(len(offs) - 1)]
-            if holes:
-                out += [sg.Polygon(r).buffer(0) for r in rings[1:] if len(r) >= 4]
-            elif len(rings[0]) >= 4:
-                out.append(sg.Polygon(rings[0], [r for r in rings[1:] if len(r) >= 4]).buffer(0))
-        return unary_union(out) if out else sg.Polygon()
-
-    def pieces(g):
-        return [x for x in (g.geoms if g.geom_type in ('MultiPolygon', 'GeometryCollection') else [g]) if x.area > 0]
-
-    through = polys(solid, holes=True)                       # open from below to above, material all around
-    cavity = unary_union([polys(solid & (U > -11.3)), through]).buffer(0.15).buffer(-0.15)
-    recess = unary_union([g for g in pieces(cavity) if g.intersects(roof)])
-    high = unary_union([polys(solid & (U > -7.25)), through]).intersection(recess)
-    # where a recess runs out to the edge of the part, the fill ends 0.1 inside the case's outer face
-    # (the top part's outline: its walls are vertical, so its flat faces reach them), as the
-    # original recess mouths do
-    flat = unary_union([face_poly(f) for f in top.Faces() if f.geomType() == 'PLANE' and abs(f.normalAt().z) > 0.99]).buffer(0.001)
-    outer = sg.Polygon(max(pieces(flat), key=lambda g: g.area).exterior).buffer(-0.1)
-    fill_area = unary_union([g for g in pieces(high.buffer(0.1).intersection(recess.buffer(0.3)).intersection(outer))
-                             if g.area > 0.3 and not g.intersects(screws)])  # screw holes and their cavities stay
-    fill_area = fill_area.simplify(0.02)
-    fill = [cq.Solid.extrudeLinear(poly_face(g, -7.3), cq.Vector(0, 0, 7.3)) for g in pieces(fill_area)]
-    if fill:
-        g = SEAM_GAP + 0.05
-        moves = [(0, 0, -g)] + [(g * np.cos(a), g * np.sin(a), 0) for a in np.radians(np.arange(0, 360, 30))]
-        cut = []
-        for x in fill:
-            fb = x.BoundingBox()
-            near = top.intersect(box(fb.xmin - 1, fb.xmax + 1, fb.ymin - 1, fb.ymax + 1, fb.zmin - 1, fb.zmax + 1))
-            if near.Solids():
-                x = x.cut(near, *[near.translate(cq.Vector(*mv)) for mv in moves])
-            cut += [y for y in x.Solids() if y.Volume() > 1e-3]
-        fill = cut
-    out = bot.fuse(*fill).clean() if fill else bot
-    b0, b1 = bot.BoundingBox(), out.BoundingBox()
-    assert max(abs(getattr(b0, a) - getattr(b1, a)) for a in ('xmin', 'xmax', 'ymin', 'ymax', 'zmin')) < 1e-6, \
-        'opening fill reached outside the case'
-    return out, len(fill), round(fill_area.area, 1)
-
-
-def thicken_thin_floors(tools, bot, skin):
-    """A pocket floor must be at least `skin` thick. Where the underside below a pocket comes
-    within `skin` of its floor (leftover bits of the old leg-recess roof, sloped edges), add a pad
-    underneath so the floor stays `skin` thick. Through-openings (no material at all) stay open."""
-    import trimesh, shapely.geometry as sg
-    from shapely.ops import unary_union
-    v, f = bot.tessellate(0.005, 0.05)
-    m = trimesh.Trimesh(np.array([p.toTuple() for p in v]), np.array(f))
-    pads, where = [], []
-    for t in tools:
-        b = t.BoundingBox()
-        if b.zmin > -C - 0.05:
-            continue
-        foot = sg.MultiPoint([v.toTuple()[:2] for v in t.Vertices()]).convex_hull
-        xs = np.arange(b.xmin, b.xmax, 0.1); ys = np.arange(b.ymin, b.ymax, 0.1)
-        P = np.array([(x, y) for x in xs for y in ys if foot.contains(sg.Point(x, y))])
-        if len(P) == 0:
-            continue
-        loc, idx, _ = m.ray.intersects_location(np.c_[P, np.full(len(P), -20.0)], np.tile([0, 0, 1.0], (len(P), 1)),
-                                                multiple_hits=False)
-        U = np.full(len(P), -99.0); U[idx] = np.asarray(loc).reshape(-1, 3)[:, 2]
-        thin = P[(U < b.zmin) & (U > b.zmin - skin)]
-        if len(thin) == 0:
-            continue
-        region = unary_union([sg.Point(x, y).buffer(0.12, quad_segs=4) for x, y in thin]).buffer(0.05).simplify(0.02)
-        for g in (region.geoms if region.geom_type == 'MultiPolygon' else [region]):
-            if g.area > 0.01:
-                pads.append(cq.Solid.extrudeLinear(poly_face(g, b.zmin - skin - 0.05), cq.Vector(0, 0, skin + 0.05)))
-        where.append((round((b.xmin + b.xmax) / 2, 1), round((b.ymin + b.ymax) / 2, 1), len(thin)))
-    return pads, where
-
-
-def xiao_keepout(side):
-    """The XIAO module has no KiCad model; use the site's model extents (local frame)."""
-    (x, y), a = XIAO[side]
-    loc = box(-8.9, 8.9, -10.6, 11.9, 1.66, 5.93)
-    s = obb_box(loc, C).rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), a).translate(cq.Vector(x, y, 0))
+def make_insert(d):
+    xiao = d['xiao']
+    wa0, wa1, wb0, wb1 = WINDOW
+    plug = local_rect(xiao, wa0 + WINDOW_R, wa1 - WINDOW_R, wb0 + WINDOW_R, wb1 - WINDOW_R, WINDOW_R - PLUG_GAP)
+    fl = local_rect(xiao, wa0 - FLANGE + WINDOW_R, wa1 + FLANGE - WINDOW_R, wb0 - FLANGE + WINDOW_R, wb1 + FLANGE - WINDOW_R, WINDOW_R)
+    s = prisms(g.union(plug), ROOF_Z, Z_TOP)[0].fuse(prisms(g.union(fl), Z_TOP - WOOD_T, ROOF_Z)[0]).clean()
     return s
 
 
-# ------------------------------------------------------------ wood window
-def window_parts(side, top):
-    """Opening in the roof above the XIAO plus a matching wood insert (plug + flange under the roof)."""
-    (x, y), a = XIAO[side]
-    def local(x0, x1, y0, y1, z0, z1, r):
-        b = cq.Workplane().box(x1 - x0, y1 - y0, z1 - z0).edges('|Z').fillet(r) \
-            .translate(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)).val()
-        return b.rotate(cq.Vector(0, 0, 0), cq.Vector(0, 0, 1), a).translate(cq.Vector(x, y, 0))
-    # roof underside straight above the XIAO centre
-    col = top.intersect(box(x - 0.05, x + 0.05, y - 0.05, y + 0.05, 6, 20))
-    roof_z0 = col.BoundingBox().zmin
-    top_z = col.BoundingBox().zmax
-    W_X, W_Y = (-7.0, 7.0), (-10.3, 8.2)       # window in XIAO frame: to the far end; USB-C end (+y) closed
-    hole = local(*W_X, *W_Y, roof_z0 - 1, top_z + 1, 1.5)
-    plug = local(W_X[0] + 0.1, W_X[1] - 0.1, W_Y[0] + 0.1, W_Y[1] - 0.1, roof_z0, top_z, 1.4)
-    flange_t = 1.5
-    flange_box = local(W_X[0] - 1.5, W_X[1] + 1.5, W_Y[0] - 1.5, W_Y[1] + 1.5, roof_z0 - flange_t, roof_z0, 1.0)
-    # flange must clear the cavity walls by 0.2: subtract the top grown sideways
-    walls = top.intersect(box(x - 20, x + 20, y - 20, y + 20, roof_z0 - flange_t - 0.01, roof_z0 + 0.01))
-    flange = flange_box
-    for dx, dy in [(0.2, 0), (-0.2, 0), (0, 0.2), (0, -0.2), (0.14, 0.14), (-0.14, 0.14), (0.14, -0.14), (-0.14, -0.14), (0, 0)]:
-        flange = flange.cut(walls.translate(cq.Vector(dx, dy, 0)))
-    sols = sorted(flange.Solids(), key=lambda s: -s.Volume())
-    insert = plug.fuse(sols[0]).clean()
-    insert = sorted(insert.cut(top.cut(hole)).Solids(), key=lambda s: -s.Volume())[0]  # never overlap the aluminum
-    assert insert.BoundingBox().zmax > top_z - 1e-3, 'insert lost its plug'
-    return hole, insert, roof_z0, top_z
+def export(shape, path):
+    cq.exporters.export(shape, str(path))
+    back = cq.importers.importStep(str(path)).val()
+    assert back.isValid() and len(back.Solids()) == 1, (path.name, back.isValid(), len(back.Solids()))
+    assert abs(back.Volume() - shape.Volume()) < 1e-6 * shape.Volume() + 1e-3, path.name
+    return back
 
 
-def repair(shape):
-    """Booleans can leave a zero-area face; re-sew without it (volume must not change)."""
-    if shape.isValid():
-        return shape
-    from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
-    sew = BRepBuilderAPI_Sewing(1e-5)
+def face_types(shape):
+    out = {}
     for f in shape.Faces():
-        if f.Area() > 1e-9:
-            sew.Add(f.wrapped)
-    sew.Perform()
-    from OCP.ShapeFix import ShapeFix_Solid
-    shells = sorted(cq.Shape.cast(sew.SewedShape()).Shells(), key=lambda sh: -sh.Area())
-    fs = ShapeFix_Solid(cq.Solid.makeSolid(shells[0]).wrapped); fs.Perform()
-    fixed = cq.Shape.cast(fs.Solid())
-    assert fixed.isValid() and abs(fixed.Volume() - shape.Volume()) < 1e-6 * abs(shape.Volume()) + 1e-2, \
-        ('repair failed', len(shells), fixed.isValid(), fixed.Volume(), shape.Volume())
-    log('repaired a degenerate face')
-    return fixed
+        out[f.geomType()] = out.get(f.geomType(), 0) + 1
+    return out
 
 
-def dogbones(top):
-    """Corner reliefs for every ~13.8 mm square switch cut-out in the clip ledge, so a round
-    end mill leaves room for the switch's square corners."""
-    sec = top.intersect(box(-50, 450, -300, 50, 2.99, 3.01))
-    face = [f for f in sec.Faces() if f.normalAt().z > 0.99 and f.Center().z > 3.005]
-    cyl = []
-    for f in face:
-        for w in f.innerWires():
-            vs = [v.toTuple()[:2] for v in w.Vertices()]
-            if len(vs) != 4:
-                continue
-            c = np.mean(vs, axis=0)
-            sides = [np.hypot(*(np.subtract(vs[i], vs[(i + 1) % 4]))) for i in range(4)]
-            if not all(13.6 < L < 14.1 for L in sides):
-                continue
-            for v in vs:
-                d = np.subtract(v, c); d /= np.linalg.norm(d)
-                o = np.add(v, d * (DOGBONE_R - 0.05))  # circle on the diagonal, covering the corner
-                cyl.append(cq.Solid.makeCylinder(DOGBONE_R, LEDGE[1] - LEDGE[0], cq.Vector(o[0], o[1], LEDGE[0])))
-    return cyl
-
-
-def heal_candidates(shape):
-    """Ways to heal a shape the STEP round trip flags as invalid, gentlest first."""
-    from OCP.ShapeFix import ShapeFix_Shape
-    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
-    yield 'as is', shape
-    for prec in (1e-5, 1e-4, 1e-3):
-        fx = ShapeFix_Shape(shape.wrapped); fx.SetPrecision(prec); fx.SetMaxTolerance(prec * 10); fx.Perform()
-        yield f'ShapeFix {prec}', cq.Shape.cast(fx.Shape())
-    u = ShapeUpgrade_UnifySameDomain(shape.wrapped, True, True, False); u.Build()
-    yield 'unify faces', cq.Shape.cast(u.Shape())
-    try:
-        yield 'resew', repair(shape)
-    except AssertionError:
-        pass
-
-
-def drop_voids(solid):
-    """Fill sealed internal voids (the raster slit fill can trap hair-thin air needles)."""
-    shells = solid.Shells()
-    if len(shells) == 1:
-        return solid
-    outer = max(shells, key=lambda sh: sh.Area())
-    filled = cq.Solid.makeSolid(outer)
-    log('filled', len(shells) - 1, 'sealed voids, volume', round(filled.Volume() - solid.Volume(), 4), 'mm^3')
-    return filled
-
-
-def validate_step(shape, path):
-    """Write, read back; if the STEP round trip leaves the solid invalid, heal and try again."""
-    vol = shape.Volume()
-    tried = []
-    for src in (shape, None):
-        base = shape if src is not None else back
-        for how, cand in heal_candidates(base):
-            sols = cand.Solids()
-            if len(sols) != 1 or abs(sols[0].Volume() - vol) > 1e-5 * abs(vol) + 0.05:
-                tried.append((how, 'changed')); continue
-            cq.exporters.export(sols[0], str(path))
-            back = cq.importers.importStep(str(path)).val()
-            ok = back.isValid() and len(back.Solids()) == 1 and abs(back.Volume() - vol) < 1e-5 * abs(vol) + 0.05
-            tried.append((how, ok))
-            if ok:
-                if how != 'as is':
-                    log(path.name, 'healed by', how)
-                return back
-    raise AssertionError((path.name, tried))
-
-
-def build(side, parts):
-    log(side, 'start')
-    top = load(f'orig/TOTEM_case_ble_top_{side}_V.08.step')
-    bot = load(f'orig/TOTEM_tenting_live_bottom_{side}.step')
-    bot, n_slit, a_slit, v_fill = fill_leg_recess_slits(bot, side)
-    log(side, 'leg-recess slits closed:', n_slit, 'pieces,', a_slit, 'mm^2 footprint,', v_fill, 'mm^3')
-    bot, n_open, a_open = close_recess_openings(bot, side, top)
-    log(side, 'through-openings in the recess roofs closed:', n_open, ',', a_open, 'mm^2')
-    pcb = pcb_solid(side)
-    k_pcb, n_holes, n_kept = pcb_keepout(pcb)
-    log(side, 'pcb keep-out ok; holes', n_holes, 'kept after shrink', n_kept)
-    k_parts, part_names = part_keepouts(side, parts)
-    k_pads = pad_keepouts(side, SCREWS[side], parts)
-    k_xiao = xiao_keepout(side)
-    under_board = board_prism(k_pcb)
-    tools, n_merged = merge_under_switches(k_parts + k_pads, side, parts, under_board)
-    pads, where = thicken_thin_floors(tools, bot, SKIN)
-    if pads:
-        bot = bot.fuse(*pads).clean()
-    log(side, 'thin pocket floors padded from below at', where)
-    tools = [k_pcb, k_xiao] + tools
-    log(side, 'keep-outs: parts', len(k_parts), 'pads', len(k_pads), '-> merged under', n_merged, 'switches; total', len(tools))
-    keep = cq.Compound.makeCompound(tools)
-
-    seam = SEAM_Z0 + SEAM_RAISE
-    top_hi = top.intersect(box(-50, 450, -300, 50, seam, 50))
-    # the bottom rim grows up by SEAM_RAISE under the old skirt footprint (old gap filled, new gap kept)
-    ring = top.intersect(box(-50, 450, -300, 50, SEAM_Z0, seam - SEAM_GAP))
-    skirt = ring.fuse(ring.translate(cq.Vector(0, 0, -SEAM_GAP - 0.05))).clean()
-    bosses = [top.intersect(cq.Solid.makeCylinder(PAD_R, PCB_TOP + C + 0.2, cq.Vector(sx, sy, PCB_TOP)))
-              for sx, sy in SCREWS[side]]
-    new_top = fast_cut(top_hi, tools)
-    log(side, 'top cut')
-    new_top = new_top.fuse(*[b for b in bosses if b.Solids()]).clean()
-    hole, insert, roof_z0, top_z = window_parts(side, top)
-    new_top = new_top.cut(hole).clean()
-    bones = dogbones(new_top)
-    new_top = new_top.cut(*bones).clean()
-    log(side, 'switch cut-outs with corner reliefs:', len(bones) // 4)
-    log(side, 'top done; roof underside', round(roof_z0, 3), 'top', round(top_z, 3))
-
-    new_bot = bot.fuse(skirt).clean()
-    new_bot = fast_cut(new_bot, tools).clean()
-    log(side, 'bottom done')
-
-    sols_t = sorted(new_top.Solids(), key=lambda s: -s.Volume())
-    sols_b = sorted(new_bot.Solids(), key=lambda s: -s.Volume())
-    log(side, 'top solids', [round(s.Volume(), 2) for s in sols_t][:5], 'bottom solids', [round(s.Volume(), 2) for s in sols_b][:5])
-    for nm, ss in [('top', sols_t[1:]), ('bottom', sols_b[1:])]:
-        for f in ss:
-            b = f.BoundingBox()
-            log(side, nm, 'fragment at', [round(v, 2) for v in (b.xmin, b.xmax, b.ymin, b.ymax, b.zmin, b.zmax)], 'vol', round(f.Volume(), 3))
-    new_top, new_bot = drop_voids(sols_t[0]), drop_voids(sols_b[0])
-    new_top.exportBrep(str(W / f'final_top_{side}.brep')); new_bot.exportBrep(str(W / f'final_bottom_{side}.brep'))
-    insert.exportBrep(str(W / f'final_insert_{side}.brep'))
-    log(side, 'in-memory valid: top', new_top.isValid(), 'bottom', new_bot.isValid())
-    if '--brep-only' in sys.argv:
-        return None
-    t = validate_step(new_top, OUT / f'TOTEM_alu_top_{side}.step')
-    b = validate_step(new_bot, OUT / f'TOTEM_alu_bottom_{side}.step')
-    i = validate_step(insert, OUT / f'TOTEM_wood_window_insert_{side}.step')
-    cq.exporters.export(cq.Compound.makeCompound(tools), str(W / f'keepout_{side}.step'))
-    cq.exporters.export(pcb, str(W / f'pcb_{side}.step'))
-    return dict(top=t, bottom=b, insert=i, pcb=pcb, keep=tools, part_names=part_names,
-                dropped_top=[s.Volume() for s in sols_t[1:]], dropped_bottom=[s.Volume() for s in sols_b[1:]])
+def build(board, side):
+    t = time.monotonic()
+    timing = {}
+    log(side, 'design')
+    d = design(board, side)
+    timing['2D design'] = time.monotonic() - t; t = time.monotonic()
+    log(side, 'regions ready:', len(d['pockets']), 'pocket levels,', len(d['keys']), 'keys,', len(d['holes']), 'screws')
+    top, nt = make_top(d)
+    log(side, 'top:', len(top), 'solid(s) from', nt, 'tools, volume', round(top[0].Volume(), 1))
+    bot, nb = make_bottom(d)
+    log(side, 'bottom:', len(bot), 'solid(s) from', nb, 'tools, volume', round(bot[0].Volume(), 1))
+    ins = make_insert(d)
+    timing['solids'] = time.monotonic() - t; t = time.monotonic()
+    assert len(top) == 1 and len(bot) == 1, 'a part fell apart'
+    OUT.mkdir(exist_ok=True)
+    res = {}
+    for name, s in (('top', top[0]), ('bottom', bot[0]), ('insert', ins)):
+        fn = {'top': f'TOTEM_alu_top_{side}.step', 'bottom': f'TOTEM_alu_bottom_{side}.step',
+              'insert': f'TOTEM_wood_window_insert_{side}.step'}[name]
+        back = export(s, OUT / fn)
+        bb = back.BoundingBox()
+        res[name] = dict(file=fn, valid=back.isValid(), volume=round(back.Volume(), 1), faces=face_types(back),
+                         size=[round(bb.xlen, 2), round(bb.ylen, 2), round(bb.zlen, 2)], z=[round(bb.zmin, 2), round(bb.zmax, 2)])
+        log(side, name, res[name])
+    timing['STEP write and read-back'] = time.monotonic() - t
+    res['timing'] = {k: round(v, 2) for k, v in timing.items()}
+    return d, res
 
 
 if __name__ == '__main__':
-    parts = kicad_parts()
-    log('kicad parts', len(parts))
-    sides = [a for a in sys.argv[1:] if not a.startswith('--')] or ['L', 'R']
-    for s in sides:
-        r = build(s, parts)
-        if r:
-            log(s, 'dropped fragments top', r['dropped_top'], 'bottom', r['dropped_bottom'])
+    sides = [a for a in sys.argv[1:] if a in ('L', 'R')] or ['L', 'R']
+    board = Board()
+    P.part_boxes(board)
+    t_load = time.monotonic() - T0
+    log('board and part boxes loaded')
+    for side in sides:
+        d, res = build(board, side)
+        res['timing'] = {'start, board and part boxes': round(t_load, 2), **res['timing']}
+        (W / f'build_{side}.json').write_text(json.dumps(res, indent=1))
+    log('done')
